@@ -1,0 +1,10 @@
+node_modules
+npm-debug.log*
+.git
+.gitignore
+.env
+.opencode
+.agents
+skills-lock.json
+public/uploads/tickets/*
+!public/uploads/tickets/.gitkeep
