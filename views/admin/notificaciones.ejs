@@ -1,0 +1,74 @@
+<%- include('../partials/header') %>
+
+<div class="page-header">
+  <div>
+    <a href="/tickets" class="btn-back"><i class="fas fa-arrow-left"></i> Volver</a>
+    <h1><i class="fas fa-bell"></i> Configurar Notificaciones</h1>
+    <p class="subtitle">Configura cómo y cuándo recibís alertas</p>
+  </div>
+</div>
+
+<div class="form-container">
+  <form action="/admin/notificaciones" method="POST" class="ticket-form">
+
+    <div class="card mb">
+      <div class="card-header"><h3><i class="fas fa-desktop"></i> Notificaciones en pantalla</h3></div>
+      <div class="card-body">
+        <label class="toggle-label">
+          <input type="checkbox" name="notif_pantalla" <%= usuario.notif_pantalla ? 'checked' : '' %>>
+          <span class="toggle-switch"></span>
+          Mostrar notificaciones en la barra superior
+        </label>
+      </div>
+    </div>
+
+    <div class="card mb">
+      <div class="card-header"><h3><i class="fas fa-envelope"></i> Notificaciones por email</h3></div>
+      <div class="card-body">
+        <label class="toggle-label">
+          <input type="checkbox" name="notif_email" <%= usuario.notif_email ? 'checked' : '' %>>
+          <span class="toggle-switch"></span>
+          Recibir notificaciones por email
+        </label>
+
+        <div class="form-group mt">
+          <label>Email de destino (puede ser diferente al de login)</label>
+          <input type="email" name="email_notif" value="<%= config.email_notif || usuario.email %>" class="form-input" placeholder="notificaciones@empresa.com">
+        </div>
+
+        <div class="notif-options">
+          <h4>Avisar cuando...</h4>
+          <label class="toggle-label">
+            <input type="checkbox" name="notif_nuevo_ticket" <%= config.notif_nuevo_ticket ? 'checked' : '' %>>
+            <span class="toggle-switch"></span>
+            Me asignan un nuevo ticket
+          </label>
+          <label class="toggle-label">
+            <input type="checkbox" name="notif_cambio_estado" <%= config.notif_cambio_estado ? 'checked' : '' %>>
+            <span class="toggle-switch"></span>
+            Cambia el estado de un ticket mío
+          </label>
+          <label class="toggle-label">
+            <input type="checkbox" name="notif_nuevo_comentario" <%= config.notif_nuevo_comentario ? 'checked' : '' %>>
+            <span class="toggle-switch"></span>
+            Hay un nuevo comentario en mis tickets
+          </label>
+          <label class="toggle-label">
+            <input type="checkbox" name="notif_asignacion" <%= config.notif_asignacion ? 'checked' : '' %>>
+            <span class="toggle-switch"></span>
+            Me reasignan un ticket
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <div class="form-actions">
+      <a href="/tickets" class="btn-secondary">Cancelar</a>
+      <button type="submit" class="btn-primary btn-lg">
+        <i class="fas fa-save"></i> Guardar configuración
+      </button>
+    </div>
+  </form>
+</div>
+
+<%- include('../partials/footer') %>

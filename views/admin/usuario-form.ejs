@@ -1,0 +1,106 @@
+<%- include('../partials/header') %>
+
+<div class="page-header">
+  <div>
+    <a href="/admin" class="btn-back"><i class="fas fa-arrow-left"></i> Volver</a>
+    <h1><i class="fas fa-user-<%= accion === 'nuevo' ? 'plus' : 'edit' %>"></i> <%= accion === 'nuevo' ? 'Nuevo Usuario' : 'Editar Usuario' %></h1>
+  </div>
+</div>
+
+<div class="form-container">
+  <form action="/admin/usuarios/<%= accion === 'editar' ? usuario.id + '/editar' : 'nuevo' %>" method="POST" class="ticket-form">
+    <div class="form-row">
+      <div class="form-group">
+        <label><i class="fas fa-user"></i> Nombre completo</label>
+        <input type="text" name="nombre" value="<%= usuario.nombre || '' %>" required class="form-input" placeholder="Juan Perez">
+      </div>
+      <div class="form-group">
+        <label><i class="fas fa-envelope"></i> Email de acceso</label>
+        <input type="email" name="email" value="<%= usuario.email || '' %>" required class="form-input" placeholder="juan@empresa.com">
+      </div>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label><i class="fas fa-lock"></i> <%= accion === 'nuevo' ? 'Contrasena' : 'Nueva contrasena' %></label>
+        <input type="password" name="password" <%= accion === 'nuevo' ? 'required' : '' %> class="form-input" placeholder="<%= accion === 'nuevo' ? 'Minimo 6 caracteres' : 'Dejar vacio para mantener la actual' %>">
+      </div>
+      <div class="form-group">
+        <label><i class="fas fa-shield-alt"></i> Rol</label>
+        <select name="rol" class="form-select">
+          <option value="soporte" <%= usuario.rol === 'soporte' ? 'selected' : '' %>>Soporte</option>
+          <option value="desarrollo" <%= usuario.rol === 'desarrollo' ? 'selected' : '' %>>Desarrollo</option>
+          <option value="admin" <%= usuario.rol === 'admin' ? 'selected' : '' %>>Administrador</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="card card-inner">
+      <div class="card-header">
+        <h3><i class="fas fa-sliders-h"></i> Estado y canales</h3>
+      </div>
+      <div class="card-body">
+        <div class="toggle-grid">
+          <label class="toggle-label">
+            <input type="checkbox" name="activo" <%= usuario.activo ? 'checked' : '' %>>
+            <span class="toggle-switch"></span>
+            Usuario activo
+          </label>
+          <label class="toggle-label">
+            <input type="checkbox" name="notif_email" <%= usuario.notif_email ? 'checked' : '' %>>
+            <span class="toggle-switch"></span>
+            Permitir envio de mails
+          </label>
+          <label class="toggle-label">
+            <input type="checkbox" name="notif_pantalla" <%= usuario.notif_pantalla ? 'checked' : '' %>>
+            <span class="toggle-switch"></span>
+            Notificaciones en pantalla
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <div class="card card-inner">
+      <div class="card-header">
+        <h3><i class="fas fa-envelope-open-text"></i> Configuracion de correo</h3>
+      </div>
+      <div class="card-body">
+        <div class="form-group">
+          <label><i class="fas fa-at"></i> Email de notificaciones</label>
+          <input type="email" name="email_notif" value="<%= usuario.email_notif || usuario.email || '' %>" class="form-input" placeholder="notificaciones@empresa.com">
+        </div>
+        <div class="toggle-grid">
+          <label class="toggle-label">
+            <input type="checkbox" name="notif_nuevo_ticket" <%= usuario.notif_nuevo_ticket ? 'checked' : '' %>>
+            <span class="toggle-switch"></span>
+            Nuevo ticket
+          </label>
+          <label class="toggle-label">
+            <input type="checkbox" name="notif_cambio_estado" <%= usuario.notif_cambio_estado ? 'checked' : '' %>>
+            <span class="toggle-switch"></span>
+            Cambio de estado
+          </label>
+          <label class="toggle-label">
+            <input type="checkbox" name="notif_nuevo_comentario" <%= usuario.notif_nuevo_comentario ? 'checked' : '' %>>
+            <span class="toggle-switch"></span>
+            Nuevo comentario
+          </label>
+          <label class="toggle-label">
+            <input type="checkbox" name="notif_asignacion" <%= usuario.notif_asignacion ? 'checked' : '' %>>
+            <span class="toggle-switch"></span>
+            Reasignaciones
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <div class="form-actions">
+      <a href="/admin" class="btn-secondary">Cancelar</a>
+      <button type="submit" class="btn-primary btn-lg">
+        <i class="fas fa-save"></i> Guardar
+      </button>
+    </div>
+  </form>
+</div>
+
+<%- include('../partials/footer') %>

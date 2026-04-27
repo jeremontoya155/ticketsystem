@@ -1,0 +1,64 @@
+<%- include('../partials/header') %>
+
+<div class="page-header">
+  <div>
+    <a href="/admin/clientes" class="btn-back"><i class="fas fa-arrow-left"></i> Volver</a>
+    <h1><i class="fas fa-building"></i> <%= accion === 'nuevo' ? 'Nueva Empresa' : 'Editar Empresa' %></h1>
+  </div>
+</div>
+
+<div class="form-container">
+  <form action="/admin/clientes/<%= accion === 'editar' ? cliente.id + '/editar' : 'nuevo' %>" method="POST" class="ticket-form">
+    <div class="form-row">
+      <div class="form-group">
+        <label><i class="fas fa-building"></i> Nombre</label>
+        <input type="text" name="nombre" value="<%= cliente.nombre || '' %>" required class="form-input" placeholder="Empresa SA">
+      </div>
+      <div class="form-group">
+        <label><i class="fas fa-hashtag"></i> Codigo externo</label>
+        <input type="number" name="codigo_externo" value="<%= cliente.codigo_externo || '' %>" class="form-input" placeholder="1001">
+      </div>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label><i class="fas fa-tags"></i> Tipo cliente</label>
+        <input type="number" name="tipo_cliente" value="<%= cliente.tipo_cliente || '' %>" class="form-input" placeholder="1">
+      </div>
+      <div class="form-group">
+        <label><i class="fas fa-tag"></i> Nombre tipo</label>
+        <input type="text" name="nombre_tipo" value="<%= cliente.nombre_tipo || '' %>" class="form-input" placeholder="Abono Premium">
+      </div>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label><i class="fas fa-user-tie"></i> Contacto</label>
+        <input type="text" name="contacto_nombre" value="<%= cliente.contacto_nombre || '' %>" class="form-input" placeholder="Juan Perez">
+      </div>
+      <div class="form-group">
+        <label><i class="fas fa-phone"></i> Telefono</label>
+        <input type="text" name="telefono" value="<%= cliente.telefono || '' %>" class="form-input" placeholder="+54 351 ...">
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label><i class="fas fa-envelope"></i> Email</label>
+      <input type="email" name="email" value="<%= cliente.email || '' %>" class="form-input" placeholder="contacto@empresa.com">
+    </div>
+
+    <div class="form-group">
+      <label><i class="fas fa-sticky-note"></i> Notas</label>
+      <textarea name="notas" rows="4" class="form-textarea" placeholder="Informacion adicional para soporte, reportes o seguimiento..."><%= cliente.notas || '' %></textarea>
+    </div>
+
+    <div class="form-actions">
+      <a href="/admin/clientes" class="btn-secondary">Cancelar</a>
+      <button type="submit" class="btn-primary btn-lg">
+        <i class="fas fa-save"></i> Guardar
+      </button>
+    </div>
+  </form>
+</div>
+
+<%- include('../partials/footer') %>

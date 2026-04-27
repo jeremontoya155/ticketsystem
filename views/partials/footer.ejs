@@ -1,0 +1,65 @@
+</div><!-- /container -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="/js/app.js"></script>
+<% if (user) { %>
+<script>
+  // Polling notificaciones cada 20 segundos
+  fetchNotificaciones();
+  setInterval(fetchNotificaciones, 20000);
+
+  async function fetchNotificaciones() {
+    try {
+      const res = await fetch('/api/notificaciones');
+      const data = await res.json();
+      const badge = document.getElementById('notifBadge');
+      const list = document.getElementById('notifList');
+      if (!badge || !list) return;
+      if (data.length > 0) {
+        badge.style.display = 'flex';
+        badge.textContent = data.length > 9 ? '9+' : data.length;
+        list.innerHTML = data.map(n => `
+          <div class="notif-item notif-${n.tipo}" onclick="leerNotif(${n.id}, ${n.ticket_id})">
+            <i class="fas fa-${n.tipo==='success'?'check-circle':n.tipo==='danger'?'exclamation-circle':n.tipo==='warning'?'exclamation-triangle':'info-circle'}"></i>
+            <div class="notif-body">
+              <p>${n.mensaje}</p>
+              <small>${new Date(n.created_at).toLocaleString('es-AR')}</small>
+            </div>
+          </div>
+        `).join('');
+      } else {
+        badge.style.display = 'none';
+        list.innerHTML = '<div class="notif-empty"><i class="fas fa-check"></i> Sin notificaciones</div>';
+      }
+    } catch(e) {}
+  }
+
+  function toggleNotif() {
+    const dd = document.getElementById('notifDropdown');
+    dd.classList.toggle('show');
+  }
+
+  async function leerNotif(id, ticketId) {
+    await fetch(`/api/notificaciones/${id}/leer`, {method:'POST'});
+    fetchNotificaciones();
+    if (ticketId) window.location.href = `/tickets/${ticketId}`;
+  }
+
+  async function leerTodas() {
+    await fetch('/api/notificaciones/leer-todas', {method:'POST'});
+    fetchNotificaciones();
+  }
+
+  // Cerrar dropdown al click fuera
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('#notifWrapper')) {
+      document.getElementById('notifDropdown')?.classList.remove('show');
+    }
+  });
+</script>
+<% } %>
+<!-- Auto-ocultar alertas -->
+<script>
+  setTimeout(() => { document.querySelectorAll('.alert').forEach(a => a.style.opacity='0'); }, 4000);
+</script>
+</body>
+</html>

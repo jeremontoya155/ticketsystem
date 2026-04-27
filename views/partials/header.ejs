@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title><%= title %> | TicketSystem</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+</head>
+<body>
+<% if (user) { %>
+<nav class="navbar">
+  <div class="nav-brand">
+    <i class="fas fa-ticket-alt"></i>
+    <span>TicketSystem</span>
+  </div>
+  <div class="nav-links">
+    <a href="/tickets" class="nav-link <%= title.includes('Ticket') ? 'active' : '' %>">
+      <i class="fas fa-list"></i> Tickets
+    </a>
+    <a href="/tickets/nuevo" class="nav-link btn-new">
+      <i class="fas fa-plus"></i> Nuevo
+    </a>
+    <% if (user.rol === 'admin') { %>
+    <a href="/admin" class="nav-link">
+      <i class="fas fa-cog"></i> Admin
+    </a>
+    <% } %>
+    <a href="/admin/notificaciones" class="nav-link">
+      <i class="fas fa-bell"></i> Config
+    </a>
+  </div>
+  <div class="nav-right">
+    <!-- Notificaciones -->
+    <div class="notif-wrapper" id="notifWrapper">
+      <button class="notif-btn" id="notifBtn" onclick="toggleNotif()">
+        <i class="fas fa-bell"></i>
+        <span class="notif-badge" id="notifBadge" style="display:none">0</span>
+      </button>
+      <div class="notif-dropdown" id="notifDropdown">
+        <div class="notif-header">
+          <span>Notificaciones</span>
+          <button onclick="leerTodas()" class="btn-link">Marcar todas leídas</button>
+        </div>
+        <div id="notifList"><div class="notif-empty">Sin notificaciones</div></div>
+      </div>
+    </div>
+    <div class="user-info">
+      <span class="user-avatar"><%= user.nombre.charAt(0).toUpperCase() %></span>
+      <span class="user-name"><%= user.nombre %></span>
+      <span class="user-badge badge-<%= user.rol %>"><%= user.rol %></span>
+    </div>
+    <form action="/logout" method="POST" style="display:inline">
+      <button type="submit" class="btn-logout"><i class="fas fa-sign-out-alt"></i></button>
+    </form>
+  </div>
+</nav>
+<% } %>
+<div class="container">
+<% if (success && success.length) { %>
+  <div class="alert alert-success"><i class="fas fa-check-circle"></i> <%= success[0] %></div>
+<% } %>
+<% if (error && error.length) { %>
+  <div class="alert alert-error"><i class="fas fa-exclamation-circle"></i> <%= error[0] %></div>
+<% } %>

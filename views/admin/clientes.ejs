@@ -1,0 +1,59 @@
+<%- include('../partials/header') %>
+
+<div class="page-header">
+  <div>
+    <a href="/admin" class="btn-back"><i class="fas fa-arrow-left"></i> Volver</a>
+    <h1><i class="fas fa-building"></i> Empresas</h1>
+    <p class="subtitle">Alta y edicion de clientes para asignar tickets y enviar reportes</p>
+  </div>
+  <a href="/admin/clientes/nuevo" class="btn-primary"><i class="fas fa-plus"></i> Nueva Empresa</a>
+</div>
+
+<div class="card">
+  <div class="card-header">
+    <h3><i class="fas fa-address-book"></i> Empresas cargadas</h3>
+  </div>
+  <div class="card-body p0">
+    <% if (!clientes.length) { %>
+      <div class="empty-state">
+        <i class="fas fa-building"></i>
+        <p>No hay empresas cargadas todavia</p>
+      </div>
+    <% } else { %>
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Empresa</th>
+            <th>Tipo</th>
+            <th>Contacto</th>
+            <th>Email</th>
+            <th>Tickets</th>
+            <th>Acciones</th>
+          </tr>
+        </thead>
+        <tbody>
+          <% clientes.forEach(cliente => { %>
+          <tr>
+            <td>
+              <strong><%= cliente.nombre %></strong>
+              <small class="muted-line">Codigo: <%= cliente.codigo_externo || 'Interno' %></small>
+            </td>
+            <td><%= cliente.nombre_tipo || 'Sin tipo' %></td>
+            <td>
+              <div><%= cliente.contacto_nombre || 'Sin contacto' %></div>
+              <small class="muted-line"><%= cliente.telefono || 'Sin telefono' %></small>
+            </td>
+            <td><%= cliente.email || 'Sin email' %></td>
+            <td><strong><%= cliente.total_tickets %></strong></td>
+            <td>
+              <a href="/admin/clientes/<%= cliente.id %>/editar" class="btn-icon"><i class="fas fa-edit"></i></a>
+            </td>
+          </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    <% } %>
+  </div>
+</div>
+
+<%- include('../partials/footer') %>

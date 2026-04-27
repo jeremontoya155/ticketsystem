@@ -1,0 +1,202 @@
+<%- include('../partials/header') %>
+
+<div class="page-header">
+  <div>
+    <h1><i class="fas fa-ticket-alt"></i> Tickets</h1>
+    <p class="subtitle">Gestión de reclamos y soporte</p>
+  </div>
+  <a href="/tickets/nuevo" class="btn-primary"><i class="fas fa-plus"></i> Nuevo Ticket</a>
+</div>
+
+<!-- Stats Cards -->
+<div class="stats-grid">
+  <div class="stat-card stat-pending">
+    <div class="stat-icon"><i class="fas fa-clock"></i></div>
+    <div class="stat-info">
+      <span class="stat-number"><%= stats.pendiente %></span>
+      <span class="stat-label">Pendientes</span>
+    </div>
+  </div>
+  <div class="stat-card stat-process">
+    <div class="stat-icon"><i class="fas fa-spinner"></i></div>
+    <div class="stat-info">
+      <span class="stat-number"><%= stats.en_proceso %></span>
+      <span class="stat-label">En Proceso</span>
+    </div>
+  </div>
+  <div class="stat-card stat-resolved">
+    <div class="stat-icon"><i class="fas fa-check-circle"></i></div>
+    <div class="stat-info">
+      <span class="stat-number"><%= stats.resuelto %></span>
+      <span class="stat-label">Resueltos</span>
+    </div>
+  </div>
+  <div class="stat-card stat-alert">
+    <div class="stat-icon"><i class="fas fa-exclamation-triangle"></i></div>
+    <div class="stat-info">
+      <span class="stat-number"><%= stats.alta_prioridad %></span>
+      <span class="stat-label">Alta Prioridad</span>
+    </div>
+  </div>
+  <div class="stat-card stat-overdue">
+    <div class="stat-icon"><i class="fas fa-fire"></i></div>
+    <div class="stat-info">
+      <span class="stat-number"><%= stats.vencidos %></span>
+      <span class="stat-label">+30 días</span>
+    </div>
+  </div>
+</div>
+
+<!-- Charts Row -->
+<div class="charts-row">
+  <div class="chart-card">
+    <h3><i class="fas fa-chart-doughnut"></i> Por Estado</h3>
+    <canvas id="chartEstado" height="200"></canvas>
+  </div>
+  <div class="chart-card">
+    <h3><i class="fas fa-chart-bar"></i> Por Prioridad</h3>
+    <canvas id="chartPrioridad" height="200"></canvas>
+  </div>
+  <div class="chart-card chart-wide">
+    <h3><i class="fas fa-chart-line"></i> Tendencia Semanal</h3>
+    <canvas id="chartTendencia" height="200"></canvas>
+  </div>
+</div>
+
+<!-- Filtros -->
+<div class="filter-bar">
+  <form method="GET" action="/tickets" class="filter-form">
+    <div class="filter-group">
+      <i class="fas fa-search"></i>
+      <input type="text" name="buscar" placeholder="Buscar por cliente, reclamo o #..." value="<%= filters.buscar || '' %>">
+    </div>
+    <select name="estado">
+      <option value="">Todos los estados</option>
+      <% ['Pendiente','En Proceso','Resuelto','Cerrado'].forEach(e => { %>
+        <option value="<%= e %>" <%= filters.estado === e ? 'selected' : '' %>><%= e %></option>
+      <% }) %>
+    </select>
+    <select name="prioridad">
+      <option value="">Toda prioridad</option>
+      <% ['Baja','Media','Alta','Urgente'].forEach(p => { %>
+        <option value="<%= p %>" <%= filters.prioridad === p ? 'selected' : '' %>><%= p %></option>
+      <% }) %>
+    </select>
+    <button type="submit" class="btn-primary"><i class="fas fa-filter"></i> Filtrar</button>
+    <a href="/tickets" class="btn-secondary"><i class="fas fa-times"></i> Limpiar</a>
+  </form>
+</div>
+
+<!-- Tabla de tickets -->
+<div class="table-wrapper">
+  <% if (tickets.length === 0) { %>
+    <div class="empty-state">
+      <i class="fas fa-inbox"></i>
+      <p>No se encontraron tickets</p>
+    </div>
+  <% } else { %>
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Cliente</th>
+        <th>Reclamo</th>
+        <th>Estado</th>
+        <th>Prioridad</th>
+        <th>Ejecutor</th>
+        <th>Días</th>
+        <th>Fecha</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      <% tickets.forEach(t => { %>
+      <tr class="ticket-row" onclick="window.location='/tickets/<%= t.id %>'">
+        <td><strong class="ticket-num">#<%= t.nro_ticket %></strong></td>
+        <td>
+          <div class="client-cell">
+            <span class="client-name"><%= t.cliente_nombre || '—' %></span>
+            <small class="tc-badge"><%= t.tc || '' %></small>
+          </div>
+        </td>
+        <td><div class="reclamo-cell"><%= t.reclamo ? t.reclamo.substring(0, 80) + (t.reclamo.length > 80 ? '...' : '') : '—' %></div></td>
+        <td><span class="badge estado-<%= t.estado.toLowerCase().replace(' ','-') %>"><%= t.estado %></span></td>
+        <td><span class="badge prio-<%= t.prioridad.toLowerCase() %>"><%= t.prioridad %></span></td>
+        <td><span class="user-pill"><%= t.ejecutor_nombre || '—' %></span></td>
+        <td>
+          <span class="days-badge <%= t.dias_transcurridos > 30 ? 'days-overdue' : t.dias_transcurridos > 14 ? 'days-warning' : 'days-ok' %>">
+            <%= t.dias_transcurridos %>d
+          </span>
+        </td>
+        <td><small><%= moment(t.fecha_creacion).format('DD/MM/YY') %></small></td>
+        <td><button class="btn-icon" onclick="event.stopPropagation(); window.location='/tickets/<%= t.id %>'"><i class="fas fa-eye"></i></button></td>
+      </tr>
+      <% }) %>
+    </tbody>
+  </table>
+  <% } %>
+</div>
+
+<!-- Paginación -->
+<% if (pagination.total > 1) { %>
+<div class="pagination">
+  <% if (pagination.current > 1) { %>
+    <a href="?page=<%= pagination.current - 1 %>&estado=<%= filters.estado||'' %>&prioridad=<%= filters.prioridad||'' %>&buscar=<%= filters.buscar||'' %>" class="page-btn">
+      <i class="fas fa-chevron-left"></i>
+    </a>
+  <% } %>
+  <% for(let i = Math.max(1, pagination.current-2); i <= Math.min(pagination.total, pagination.current+2); i++) { %>
+    <a href="?page=<%= i %>&estado=<%= filters.estado||'' %>&prioridad=<%= filters.prioridad||'' %>&buscar=<%= filters.buscar||'' %>"
+       class="page-btn <%= i === pagination.current ? 'active' : '' %>"><%= i %></a>
+  <% } %>
+  <% if (pagination.current < pagination.total) { %>
+    <a href="?page=<%= pagination.current + 1 %>&estado=<%= filters.estado||'' %>&prioridad=<%= filters.prioridad||'' %>&buscar=<%= filters.buscar||'' %>" class="page-btn">
+      <i class="fas fa-chevron-right"></i>
+    </a>
+  <% } %>
+  <span class="page-info"><%= pagination.count %> tickets</span>
+</div>
+<% } %>
+
+<script>
+// Cargar gráficos
+fetch('/api/stats').then(r=>r.json()).then(data => {
+  const isDark = true;
+  const textColor = '#94a3b8';
+  const gridColor = '#1e293b';
+
+  // Doughnut estado
+  const estadoColors = { 'Pendiente':'#f59e0b','En Proceso':'#3b82f6','Resuelto':'#10b981','Cerrado':'#6b7280' };
+  new Chart(document.getElementById('chartEstado'), {
+    type: 'doughnut',
+    data: {
+      labels: data.estados.map(e => e.estado),
+      datasets: [{ data: data.estados.map(e => e.total), backgroundColor: data.estados.map(e => estadoColors[e.estado] || '#64748b'), borderWidth: 0 }]
+    },
+    options: { plugins: { legend: { labels: { color: textColor } } }, cutout: '65%' }
+  });
+
+  // Bar prioridad
+  const prioColors = { 'Urgente':'#ef4444','Alta':'#f97316','Media':'#3b82f6','Baja':'#10b981' };
+  new Chart(document.getElementById('chartPrioridad'), {
+    type: 'bar',
+    data: {
+      labels: data.prioridades.map(p => p.prioridad),
+      datasets: [{ data: data.prioridades.map(p => p.total), backgroundColor: data.prioridades.map(p => prioColors[p.prioridad] || '#64748b'), borderRadius: 6, borderWidth: 0 }]
+    },
+    options: { plugins: { legend: { display: false } }, scales: { x: { ticks: { color: textColor }, grid: { color: gridColor } }, y: { ticks: { color: textColor }, grid: { color: gridColor } } } }
+  });
+
+  // Line tendencia
+  new Chart(document.getElementById('chartTendencia'), {
+    type: 'line',
+    data: {
+      labels: data.tendencia.map(t => new Date(t.semana).toLocaleDateString('es-AR', { day:'2-digit', month:'short' })),
+      datasets: [{ label:'Tickets', data: data.tendencia.map(t => t.total), borderColor:'#3b82f6', backgroundColor:'rgba(59,130,246,0.1)', tension: 0.4, fill: true, pointBackgroundColor:'#3b82f6' }]
+    },
+    options: { plugins: { legend: { labels: { color: textColor } } }, scales: { x: { ticks: { color: textColor }, grid: { color: gridColor } }, y: { ticks: { color: textColor }, grid: { color: gridColor } } } }
+  });
+});
+</script>
+
+<%- include('../partials/footer') %>

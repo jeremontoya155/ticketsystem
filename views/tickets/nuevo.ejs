@@ -1,0 +1,86 @@
+<%- include('../partials/header') %>
+
+<div class="page-header">
+  <div>
+    <a href="/tickets" class="btn-back"><i class="fas fa-arrow-left"></i> Volver</a>
+    <h1><i class="fas fa-plus-circle"></i> Nuevo Ticket</h1>
+  </div>
+</div>
+
+<div class="form-container">
+  <form action="/tickets/nuevo" method="POST" enctype="multipart/form-data" class="ticket-form">
+    <div class="form-row">
+      <div class="form-group">
+        <label><i class="fas fa-building"></i> Empresa <span class="req">*</span></label>
+        <select name="cliente_id" required class="form-select">
+          <option value="">Seleccionar empresa...</option>
+          <% clientes.forEach(c => { %>
+            <option value="<%= c.id %>"><%= c.nombre %> (<%= c.nombre_tipo || 'Sin tipo' %>)</option>
+          <% }) %>
+        </select>
+      </div>
+      <div class="form-group">
+        <label><i class="fas fa-flag"></i> Prioridad <span class="req">*</span></label>
+        <select name="prioridad" required class="form-select">
+          <option value="Baja">Baja</option>
+          <option value="Media" selected>Media</option>
+          <option value="Alta">Alta</option>
+          <option value="Urgente">Urgente</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label><i class="fas fa-user-check"></i> Receptor</label>
+        <select name="receptor_id" class="form-select">
+          <% usuarios.forEach(u => { %>
+            <option value="<%= u.id %>" <%= u.id === user.id ? 'selected' : '' %>><%= u.nombre %> (<%= u.rol %>)</option>
+          <% }) %>
+        </select>
+      </div>
+      <div class="form-group">
+        <label><i class="fas fa-user-cog"></i> Ejecutor (Desarrollo)</label>
+        <select name="ejecutor_id" class="form-select">
+          <% usuarios.forEach(u => { %>
+            <option value="<%= u.id %>" <%= u.id === user.id ? 'selected' : '' %>><%= u.nombre %> (<%= u.rol %>)</option>
+          <% }) %>
+        </select>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label><i class="fas fa-exclamation-circle"></i> Reclamo / Descripcion <span class="req">*</span></label>
+      <textarea name="reclamo" rows="5" placeholder="Describir detalladamente el problema o solicitud..." required class="form-textarea"><%= ticket.reclamo || '' %></textarea>
+    </div>
+
+    <div class="form-group">
+      <label><i class="fas fa-comment-alt"></i> Observaciones</label>
+      <textarea name="observacion" rows="3" placeholder="Notas internas, contexto adicional..." class="form-textarea"><%= ticket.observacion || '' %></textarea>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label><i class="fas fa-tag"></i> Estado inicial</label>
+        <select name="estado" class="form-select">
+          <option value="Pendiente" selected>Pendiente</option>
+          <option value="En Proceso">En Proceso</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label><i class="fas fa-image"></i> Imagenes</label>
+        <input type="file" name="imagenes" accept="image/*" multiple class="form-input">
+        <small class="field-help">Podes subir capturas o fotos. Maximo 8 imagenes de 5 MB.</small>
+      </div>
+    </div>
+
+    <div class="form-actions">
+      <a href="/tickets" class="btn-secondary">Cancelar</a>
+      <button type="submit" class="btn-primary btn-lg">
+        <i class="fas fa-save"></i> Crear Ticket
+      </button>
+    </div>
+  </form>
+</div>
+
+<%- include('../partials/footer') %>

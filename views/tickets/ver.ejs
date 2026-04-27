@@ -1,0 +1,380 @@
+<%- include('../partials/header') %>
+<% const radar = typeof devAssistant !== 'undefined' ? devAssistant : null; %>
+
+<div class="page-header">
+  <div>
+    <a href="/tickets" class="btn-back"><i class="fas fa-arrow-left"></i> Volver</a>
+    <h1>
+      <span class="ticket-num-lg">#<%= ticket.nro_ticket %></span>
+      <span class="badge estado-<%= ticket.estado.toLowerCase().replace(' ','-') %> badge-lg"><%= ticket.estado %></span>
+      <span class="badge prio-<%= ticket.prioridad.toLowerCase() %> badge-lg"><%= ticket.prioridad %></span>
+    </h1>
+  </div>
+</div>
+
+<div class="ticket-detail-grid">
+  <div class="ticket-main">
+    <div class="card">
+      <div class="card-header">
+        <h3><i class="fas fa-info-circle"></i> Detalle del Reclamo</h3>
+      </div>
+      <div class="card-body">
+        <div class="info-grid">
+          <div class="info-item">
+            <label>Empresa</label>
+            <strong><%= ticket.cliente_nombre || '-' %></strong>
+          </div>
+          <div class="info-item">
+            <label>Tipo</label>
+            <span><%= ticket.tipo_cliente_nombre || '-' %></span>
+          </div>
+          <div class="info-item">
+            <label>Tipo ticket</label>
+            <span><%= ticket.tipo_ticket || 'Soporte normal' %></span>
+          </div>
+          <div class="info-item">
+            <label>Dias transcurridos</label>
+            <span class="days-badge <%= ticket.dias_transcurridos > 30 ? 'days-overdue' : ticket.dias_transcurridos > 14 ? 'days-warning' : 'days-ok' %>">
+              <%= ticket.dias_transcurridos %> dias
+            </span>
+          </div>
+          <div class="info-item">
+            <label>Creado</label>
+            <span><%= moment(ticket.fecha_creacion).format('DD/MM/YYYY HH:mm') %></span>
+          </div>
+          <div class="info-item">
+            <label>Asignado</label>
+            <span><%= ticket.fecha_asignacion ? moment(ticket.fecha_asignacion).format('DD/MM/YYYY HH:mm') : '-' %></span>
+          </div>
+        </div>
+        <div class="reclamo-box">
+          <label><i class="fas fa-file-alt"></i> Reclamo</label>
+          <p class="reclamo-text"><%= ticket.reclamo %></p>
+        </div>
+        <% if (ticket.observacion) { %>
+        <div class="obs-box">
+          <label><i class="fas fa-sticky-note"></i> Observaciones</label>
+          <p><%= ticket.observacion %></p>
+        </div>
+        <% } %>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <h3><i class="fas fa-paperclip"></i> Imagenes y adjuntos</h3>
+      </div>
+      <div class="card-body">
+        <% if (!attachments.length) { %>
+          <div class="empty-state-sm">Este ticket todavia no tiene imagenes cargadas</div>
+        <% } else { %>
+          <div class="attachment-grid">
+            <% attachments.forEach(attachment => { %>
+            <a href="<%= attachment.ruta %>" target="_blank" class="attachment-card">
+              <img src="<%= attachment.ruta %>" alt="<%= attachment.nombre_original %>">
+              <span><%= attachment.nombre_original %></span>
+            </a>
+            <% }) %>
+          </div>
+        <% } %>
+      </div>
+    </div>
+
+    <% if (radar) { %>
+    <div class="card dev-card">
+      <div class="card-header">
+        <h3><i class="fas fa-satellite-dish"></i> Radar Dev</h3>
+      </div>
+      <div class="card-body">
+        <div class="dev-grid">
+          <div class="dev-panel">
+            <h4>Lectura rapida</h4>
+            <% if (radar.keywords.length) { %>
+            <div class="keyword-list">
+              <% radar.keywords.forEach(keyword => { %>
+              <span class="keyword-chip"><%= keyword %></span>
+              <% }) %>
+            </div>
+            <% } else { %>
+            <div class="empty-state-sm">No se detectaron keywords fuertes en el reclamo.</div>
+            <% } %>
+
+            <div class="insight-list">
+              <% if (radar.signals.length) { %>
+                <% radar.signals.forEach(signal => { %>
+                <div class="insight-item">
+                  <strong><%= signal.title %></strong>
+                  <p><%= signal.advice %></p>
+                </div>
+                <% }) %>
+              <% } else { %>
+                <div class="insight-item">
+                  <strong>Analisis base</strong>
+                  <p>Conviene reproducir, aislar si es datos o logica y dejar trazabilidad del impacto real antes de tocar codigo.</p>
+                </div>
+              <% } %>
+            </div>
+          </div>
+
+          <div class="dev-panel">
+            <h4>Checklist sugerido</h4>
+            <ul class="dev-checklist">
+              <% radar.checklist.forEach(item => { %>
+              <li><%= item %></li>
+              <% }) %>
+            </ul>
+          </div>
+        </div>
+
+        <div class="dev-panel mt">
+          <div class="dev-panel-head">
+            <h4>Tickets relacionados</h4>
+            <span class="panel-note">para citar antecedentes o soluciones</span>
+          </div>
+          <% if (!radar.relatedTickets.length) { %>
+            <div class="empty-state-sm">Todavia no aparecieron casos con similitud suficiente.</div>
+          <% } else { %>
+            <div class="related-ticket-list">
+              <% radar.relatedTickets.forEach(item => { %>
+              <a href="/tickets/<%= item.id %>" class="related-ticket-card">
+                <div class="related-ticket-head">
+                  <strong>#<%= item.nro_ticket %></strong>
+                  <span class="score-pill"><%= item.score %> pts</span>
+                </div>
+                <div class="related-ticket-meta">
+                  <span class="badge estado-<%= item.estado.toLowerCase().replace(' ','-') %>"><%= item.estado %></span>
+                  <span class="badge prio-<%= item.prioridad.toLowerCase() %>"><%= item.prioridad %></span>
+                </div>
+                <p><%= item.reclamo ? item.reclamo.substring(0, 140) + (item.reclamo.length > 140 ? '...' : '') : 'Sin descripcion' %></p>
+                <% if (item.reasons.length) { %>
+                <small>Match: <%= item.reasons.join(' | ') %></small>
+                <% } %>
+                <% if (item.snippet) { %>
+                <div class="related-snippet"><%= item.snippet.substring(0, 180) + (item.snippet.length > 180 ? '...' : '') %></div>
+                <% } %>
+              </a>
+              <% }) %>
+            </div>
+          <% } %>
+        </div>
+
+        <div class="dev-panel mt">
+          <div class="dev-panel-head">
+            <h4>Borrador tecnico reutilizable</h4>
+            <button type="button" class="btn-secondary btn-copy" data-copy-target="devDraft">
+              <i class="fas fa-copy"></i> Copiar
+            </button>
+          </div>
+          <textarea id="devDraft" rows="8" class="form-textarea code-textarea" readonly><%= radar.suggestedReply %></textarea>
+        </div>
+
+        <div class="dev-panel mt beta-panel" data-groq-ticket-id="<%= ticket.id %>">
+          <div class="dev-panel-head">
+            <div>
+              <h4>Groq Beta</h4>
+              <span class="panel-note">orquestacion real con varias API keys y failover</span>
+            </div>
+            <span class="beta-pill">BETA</span>
+          </div>
+          <div class="form-group">
+            <label>Foco opcional</label>
+            <textarea id="groqFocus" rows="3" class="form-textarea" placeholder="Ej: prioriza una respuesta para cliente, detecta riesgo en importador, proponeme comentario tecnico para cerrar el ticket..."></textarea>
+          </div>
+          <div class="beta-actions">
+            <button type="button" class="btn-primary" id="groqGenerateBtn">
+              <i class="fas fa-wand-magic-sparkles"></i> Generar propuesta con Groq
+            </button>
+            <button type="button" class="btn-secondary btn-copy" data-copy-target="groqResult">
+              <i class="fas fa-copy"></i> Copiar resultado
+            </button>
+          </div>
+          <div class="beta-status" id="groqStatus">Estado: listo para probar</div>
+          <textarea id="groqResult" rows="12" class="form-textarea code-textarea" placeholder="Aca va a aparecer la propuesta generada por Groq..." readonly></textarea>
+        </div>
+      </div>
+    </div>
+    <% } %>
+
+    <div class="card">
+      <div class="card-header">
+        <h3><i class="fas fa-exchange-alt"></i> Cambiar Estado</h3>
+      </div>
+      <div class="card-body">
+        <form action="/tickets/<%= ticket.id %>/estado" method="POST" class="inline-form">
+          <div class="form-row">
+            <select name="estado" class="form-select">
+              <% ['Pendiente','En Proceso','Resuelto','Cerrado'].forEach(e => { %>
+                <option value="<%= e %>" <%= ticket.estado === e ? 'selected' : '' %>><%= e %></option>
+              <% }) %>
+            </select>
+            <input type="text" name="comentario" placeholder="Comentario del cambio (opcional)" class="form-input">
+            <button type="submit" class="btn-primary"><i class="fas fa-check"></i> Guardar</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <h3><i class="fas fa-users-cog"></i> Reasignar</h3>
+      </div>
+      <div class="card-body">
+        <form action="/tickets/<%= ticket.id %>/asignar" method="POST">
+          <div class="form-row">
+            <div class="form-group" style="flex:1">
+              <label>Receptor</label>
+              <select name="receptor_id" class="form-select">
+                <% usuarios.forEach(u => { %>
+                  <option value="<%= u.id %>" <%= ticket.receptor_id === u.id ? 'selected' : '' %>><%= u.nombre %></option>
+                <% }) %>
+              </select>
+            </div>
+            <div class="form-group" style="flex:1">
+              <label>Ejecutor (Desarrollo)</label>
+              <select name="ejecutor_id" class="form-select">
+                <% usuarios.forEach(u => { %>
+                  <option value="<%= u.id %>" <%= ticket.ejecutor_id === u.id ? 'selected' : '' %>><%= u.nombre %></option>
+                <% }) %>
+              </select>
+            </div>
+            <div class="form-group" style="align-self:flex-end">
+              <button type="submit" class="btn-secondary"><i class="fas fa-user-edit"></i> Reasignar</button>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <h3><i class="fas fa-comments"></i> Historial</h3>
+      </div>
+      <div class="card-body">
+        <% if (comentarios.length === 0) { %>
+          <div class="empty-state-sm">Sin historial aun</div>
+        <% } else { %>
+          <div class="timeline">
+            <% comentarios.forEach(c => { %>
+            <div class="timeline-item timeline-<%= c.tipo %>">
+              <div class="timeline-dot"></div>
+              <div class="timeline-content">
+                <div class="timeline-header">
+                  <span class="timeline-user"><%= c.usuario_nombre || 'Sistema' %></span>
+                  <% if (c.rol) { %><span class="badge badge-<%= c.rol %> badge-xs"><%= c.rol %></span><% } %>
+                  <span class="timeline-date"><%= moment(c.created_at).format('DD/MM/YY HH:mm') %></span>
+                </div>
+                <p class="timeline-text"><%= c.comentario %></p>
+                <% if (attachmentsByComment[c.id]) { %>
+                <div class="timeline-attachments">
+                  <% attachmentsByComment[c.id].forEach(attachment => { %>
+                  <a href="<%= attachment.ruta %>" target="_blank" class="timeline-attachment">
+                    <img src="<%= attachment.ruta %>" alt="<%= attachment.nombre_original %>">
+                    <span><%= attachment.nombre_original %></span>
+                  </a>
+                  <% }) %>
+                </div>
+                <% } %>
+              </div>
+            </div>
+            <% }) %>
+          </div>
+        <% } %>
+
+        <form action="/tickets/<%= ticket.id %>/comentar" method="POST" enctype="multipart/form-data" class="comment-form">
+          <textarea name="comentario" rows="3" placeholder="Agregar un comentario o nota..." required class="form-textarea"></textarea>
+          <input type="file" name="imagenes" accept="image/*" multiple class="form-input">
+          <small class="field-help">Podes agregar imagenes para documentar avances o evidencias.</small>
+          <button type="submit" class="btn-primary"><i class="fas fa-paper-plane"></i> Comentar</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div class="ticket-sidebar">
+    <div class="card">
+      <div class="card-header"><h3><i class="fas fa-users"></i> Asignacion</h3></div>
+      <div class="card-body">
+        <div class="assign-item">
+          <label>Receptor</label>
+          <div class="user-chip">
+            <span class="user-avatar-sm"><%= (ticket.receptor_nombre || 'S').charAt(0) %></span>
+            <%= ticket.receptor_nombre || '-' %>
+          </div>
+        </div>
+        <div class="assign-item">
+          <label>Ejecutor Dev</label>
+          <div class="user-chip">
+            <span class="user-avatar-sm ejec"><%= (ticket.ejecutor_nombre || 'D').charAt(0) %></span>
+            <%= ticket.ejecutor_nombre || '-' %>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header"><h3><i class="fas fa-building"></i> Empresa</h3></div>
+      <div class="card-body">
+        <div class="company-meta">
+          <strong><%= ticket.cliente_nombre || 'Sin empresa' %></strong>
+          <small><%= ticket.cliente_contacto || 'Sin contacto definido' %></small>
+        </div>
+        <div class="assign-item">
+          <label>Email</label>
+          <div class="user-chip"><%= ticket.cliente_email || 'Sin email' %></div>
+        </div>
+        <div class="assign-item">
+          <label>Telefono</label>
+          <div class="user-chip"><%= ticket.cliente_telefono || 'Sin telefono' %></div>
+        </div>
+        <% if (ticket.cliente_notas) { %>
+        <div class="assign-item">
+          <label>Notas</label>
+          <div class="note-box"><%= ticket.cliente_notas %></div>
+        </div>
+        <% } %>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header"><h3><i class="fas fa-chart-pie"></i> Estado</h3></div>
+      <div class="card-body">
+        <div class="progress-steps">
+          <% ['Pendiente','En Proceso','Resuelto','Cerrado'].forEach((e, i) => { %>
+          <div class="progress-step <%= ticket.estado === e ? 'current' : ['Resuelto','Cerrado'].includes(ticket.estado) && i < 3 ? 'done' : ticket.estado === 'Cerrado' ? 'done' : '' %>">
+            <span class="step-dot"></span>
+            <span><%= e %></span>
+          </div>
+          <% }) %>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header"><h3><i class="fas fa-envelope"></i> Enviar Reporte</h3></div>
+      <div class="card-body">
+        <form action="/tickets/<%= ticket.id %>/enviar-reporte" method="POST" class="ticket-form compact-form">
+          <div class="form-group">
+            <label>Destinatario</label>
+            <input type="email" name="destinatario" value="<%= ticket.cliente_email || '' %>" required class="form-input" placeholder="cliente@empresa.com">
+          </div>
+          <div class="form-group">
+            <label>Asunto</label>
+            <input type="text" name="asunto" value="Reporte ticket #<%= ticket.nro_ticket %>" class="form-input">
+          </div>
+          <div class="form-group">
+            <label>Mensaje</label>
+            <textarea name="mensaje" rows="8" class="form-textarea" required><%= defaultReportMessage %></textarea>
+          </div>
+          <label class="toggle-label">
+            <input type="checkbox" name="incluir_adjuntos" checked>
+            <span class="toggle-switch"></span>
+            Incluir imagenes del ticket
+          </label>
+          <button type="submit" class="btn-primary btn-full"><i class="fas fa-paper-plane"></i> Enviar por mail</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<%- include('../partials/footer') %>
