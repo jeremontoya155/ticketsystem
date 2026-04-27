@@ -9,6 +9,7 @@
 
 <div class="form-container">
   <form action="/tickets/nuevo" method="POST" enctype="multipart/form-data" class="ticket-form">
+    <input type="hidden" name="creado_desde_mobile" value="0" data-mobile-ticket-flag>
     <div class="form-row">
       <div class="form-group">
         <label><i class="fas fa-building"></i> Empresa <span class="req">*</span></label>
@@ -74,6 +75,14 @@
       </div>
     </div>
 
+    <label class="checkbox-card">
+      <input type="checkbox" name="notificar_creador_mail">
+      <span>
+        <strong>Enviarme confirmacion por mail</strong>
+        <small>Opcional. Se manda un resumen del ticket a <%= user.email %>.</small>
+      </span>
+    </label>
+
     <div class="form-actions">
       <a href="/tickets" class="btn-secondary">Cancelar</a>
       <button type="submit" class="btn-primary btn-lg">
@@ -82,5 +91,19 @@
     </div>
   </form>
 </div>
+
+<script>
+  (() => {
+    const mobileFlag = document.querySelector('[data-mobile-ticket-flag]');
+    if (!mobileFlag) return;
+
+    const isMobile = window.matchMedia('(max-width: 768px)').matches
+      || /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+
+    if (isMobile) {
+      mobileFlag.value = '1';
+    }
+  })();
+</script>
 
 <%- include('../partials/footer') %>

@@ -112,24 +112,24 @@
     <tbody>
       <% tickets.forEach(t => { %>
       <tr class="ticket-row" onclick="window.location='/tickets/<%= t.id %>'">
-        <td><strong class="ticket-num">#<%= t.nro_ticket %></strong></td>
-        <td>
+        <td data-label="Ticket"><strong class="ticket-num">#<%= t.nro_ticket %></strong></td>
+        <td data-label="Cliente">
           <div class="client-cell">
             <span class="client-name"><%= t.cliente_nombre || '—' %></span>
             <small class="tc-badge"><%= t.tc || '' %></small>
           </div>
         </td>
-        <td><div class="reclamo-cell"><%= t.reclamo ? t.reclamo.substring(0, 80) + (t.reclamo.length > 80 ? '...' : '') : '—' %></div></td>
-        <td><span class="badge estado-<%= t.estado.toLowerCase().replace(' ','-') %>"><%= t.estado %></span></td>
-        <td><span class="badge prio-<%= t.prioridad.toLowerCase() %>"><%= t.prioridad %></span></td>
-        <td><span class="user-pill"><%= t.ejecutor_nombre || '—' %></span></td>
-        <td>
+        <td data-label="Reclamo"><div class="reclamo-cell"><%= t.reclamo ? t.reclamo.substring(0, 80) + (t.reclamo.length > 80 ? '...' : '') : '—' %></div></td>
+        <td data-label="Estado"><span class="badge estado-<%= t.estado.toLowerCase().replace(' ','-') %>"><%= t.estado %></span></td>
+        <td data-label="Prioridad"><span class="badge prio-<%= t.prioridad.toLowerCase() %>"><%= t.prioridad %></span></td>
+        <td data-label="Ejecutor"><span class="user-pill"><%= t.ejecutor_nombre || '—' %></span></td>
+        <td data-label="Días">
           <span class="days-badge <%= t.dias_transcurridos > 30 ? 'days-overdue' : t.dias_transcurridos > 14 ? 'days-warning' : 'days-ok' %>">
             <%= t.dias_transcurridos %>d
           </span>
         </td>
-        <td><small><%= moment(t.fecha_creacion).format('DD/MM/YY') %></small></td>
-        <td><button class="btn-icon" onclick="event.stopPropagation(); window.location='/tickets/<%= t.id %>'"><i class="fas fa-eye"></i></button></td>
+        <td data-label="Fecha"><small><%= moment(t.fecha_creacion).format('DD/MM/YY') %></small></td>
+        <td data-label="Ver"><button class="btn-icon" onclick="event.stopPropagation(); window.location='/tickets/<%= t.id %>'"><i class="fas fa-eye"></i></button></td>
       </tr>
       <% }) %>
     </tbody>

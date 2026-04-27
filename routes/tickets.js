@@ -5,7 +5,7 @@ const moment = require('moment');
 const { pool } = require('../config/db');
 const { requireLogin } = require('../middleware/auth');
 const { uploadTicketImages } = require('../config/uploads');
-const { enviarReporteTicket, notificarTicket } = require('../config/mailer');
+const { enviarReporteTicket, enviarConfirmacionCreadorTicket, notificarTicket } = require('../config/mailer');
 const { buildDevAssistant } = require('../services/dev-radar');
 
 function withImageUpload(fieldName, fallbackPath) {
@@ -193,7 +193,7 @@ router.get('/nuevo', requireLogin, async (_req, res) => {
 });
 
 router.post('/nuevo', requireLogin, withImageUpload('imagenes', '/tickets/nuevo'), async (req, res) => {
-  const { cliente_id, reclamo, observacion, prioridad, estado, receptor_id, ejecutor_id } = req.body;
+  const { cliente_id, reclamo, observacion, prioridad, estado, receptor_id, ejecutor_id, notificar_creador_mail, creado_desde_mobile } = req.body;
   const user = req.session.user;
   const client = await pool.connect();
 
@@ -237,6 +237,29 @@ router.post('/nuevo', requireLogin, withImageUpload('imagenes', '/tickets/nuevo'
       mensaje: `Nuevo ticket #${nroTicket} asignado`,
       usuarioOrigenId: user.id
     });
+
+    if (notificar_creador_mail === 'on') {
+      try {
+        await enviarConfirmacionCreadorTicket({
+          ticketId,
+          to: user.email,
+          nombre: user.nombre
+        });
+      } catch (error) {
+        console.error('Error enviando confirmacion al creador:', error.message);
+      }
+    }
+
+    if (creado_desde_mobile === '1') {
+      try {
+        await pool.query(`
+          INSERT INTO notificaciones (usuario_id, ticket_id, mensaje, tipo)
+          VALUES ($1, $2, $3, 'success')
+        `, [user.id, ticketId, `Ticket #${nroTicket} creado desde el telefono`]);
+      } catch (error) {
+        console.error('Error creando notificacion mobile:', error.message);
+      }
+    }
 
     req.flash('success', `Ticket #${nroTicket} creado correctamente`);
     res.redirect(`/tickets/${ticketId}`);

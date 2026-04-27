@@ -16,18 +16,18 @@
   </div>
   <div class="nav-links">
     <a href="/tickets" class="nav-link <%= title.includes('Ticket') ? 'active' : '' %>">
-      <i class="fas fa-list"></i> Tickets
+      <i class="fas fa-list"></i> <span>Tickets</span>
     </a>
     <a href="/tickets/nuevo" class="nav-link btn-new">
-      <i class="fas fa-plus"></i> Nuevo
+      <i class="fas fa-plus"></i> <span>Nuevo</span>
     </a>
     <% if (user.rol === 'admin') { %>
     <a href="/admin" class="nav-link">
-      <i class="fas fa-cog"></i> Admin
+      <i class="fas fa-cog"></i> <span>Admin</span>
     </a>
     <% } %>
     <a href="/admin/notificaciones" class="nav-link">
-      <i class="fas fa-bell"></i> Config
+      <i class="fas fa-bell"></i> <span>Config</span>
     </a>
   </div>
   <div class="nav-right">

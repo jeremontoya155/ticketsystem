@@ -139,6 +139,45 @@ async function enviarReporteTicket({ ticketId, to, subject, message, includeAtta
   await enviarMail({ to, subject, html, attachments });
 }
 
+async function enviarConfirmacionCreadorTicket({ ticketId, to, nombre }) {
+  const ticketRes = await pool.query(`
+    SELECT
+      t.nro_ticket,
+      t.reclamo,
+      t.observacion,
+      t.estado,
+      t.prioridad,
+      c.nombre AS cliente_nombre
+    FROM tickets t
+    LEFT JOIN clientes c ON c.id = t.cliente_id
+    WHERE t.id = $1
+  `, [ticketId]);
+
+  const ticket = ticketRes.rows[0];
+  if (!ticket || !to) {
+    return false;
+  }
+
+  return enviarMail({
+    to,
+    subject: `[Ticket #${ticket.nro_ticket}] Confirmacion de creacion`,
+    html: `
+      <div style="font-family:Arial,sans-serif;max-width:620px;margin:0 auto">
+        <div style="background:#0f766e;color:white;padding:20px;border-radius:10px 10px 0 0">
+          <h2 style="margin:0">Ticket creado correctamente</h2>
+        </div>
+        <div style="background:#f8fafc;padding:20px;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 10px 10px">
+          <p>Hola <strong>${escapeHtml(nombre || '')}</strong>,</p>
+          <p>Recibimos la creacion del ticket y ya quedo registrado en el sistema.</p>
+          ${renderTicketBox(ticket)}
+          <p style="margin:20px 0 0;color:#64748b;font-size:12px">Este correo fue generado automaticamente desde TicketSystem.</p>
+        </div>
+      </div>
+    `,
+    silentIfUnavailable: true
+  });
+}
+
 async function notificarTicket({ ticketId, tipo, mensaje, usuarioOrigenId }) {
   const client = await pool.connect();
   try {
@@ -236,5 +275,6 @@ async function notificarTicket({ ticketId, tipo, mensaje, usuarioOrigenId }) {
 module.exports = {
   enviarMail,
   enviarReporteTicket,
+  enviarConfirmacionCreadorTicket,
   notificarTicket
 };
