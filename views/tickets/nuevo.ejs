@@ -7,7 +7,7 @@
   </div>
 </div>
 
-<div class="form-container">
+<div class="form-container ticket-compose">
   <form action="/tickets/nuevo" method="POST" enctype="multipart/form-data" class="ticket-form">
     <input type="hidden" name="creado_desde_mobile" value="0" data-mobile-ticket-flag>
     <div class="form-row">
@@ -27,6 +27,51 @@
           <option value="Media" selected>Media</option>
           <option value="Alta">Alta</option>
           <option value="Urgente">Urgente</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label><i class="fas fa-route"></i> Canal de origen</label>
+        <select name="canal_origen" class="form-select">
+          <option value="web" selected>Web</option>
+          <option value="mail">Mail</option>
+          <option value="whatsapp">WhatsApp</option>
+          <option value="vfp">VFP</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label><i class="fas fa-heading"></i> Asunto</label>
+        <input type="text" name="asunto" placeholder="Resumen corto del caso" class="form-input" value="<%= ticket.asunto || '' %>">
+      </div>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label><i class="fas fa-envelope"></i> Email origen</label>
+        <input type="email" name="origen_email" placeholder="cliente@empresa.com" class="form-input">
+      </div>
+      <div class="form-group">
+        <label><i class="fas fa-phone"></i> Telefono origen</label>
+        <input type="text" name="origen_telefono" placeholder="+54 9..." class="form-input">
+      </div>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label><i class="fas fa-fingerprint"></i> Referencia externa</label>
+        <input type="text" name="referencia_externa" placeholder="ID mail, comprobante, recepcion, etc." class="form-input">
+      </div>
+      <div class="form-group">
+        <label><i class="fas fa-diagram-project"></i> Proceso</label>
+        <select name="proceso" class="form-select">
+          <option value="">Sin proceso especifico</option>
+          <option value="soporte">Soporte</option>
+          <option value="desarrollo">Desarrollo</option>
+          <option value="recepcion">Recepcion</option>
+          <option value="armado">Armado</option>
+          <option value="operacion">Operacion</option>
         </select>
       </div>
     </div>

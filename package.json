@@ -20,8 +20,11 @@
     "express-session": "^1.17.3",
     "method-override": "^3.0.0",
     "moment": "^2.29.4",
+    "imapflow": "^1.0.194",
+    "mailparser": "^3.7.2",
     "multer": "^2.1.1",
     "nodemailer": "^6.9.7",
+    "nodemon": "^3.1.14",
     "pg": "^8.11.3"
   }
 }

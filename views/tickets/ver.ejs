@@ -8,6 +8,8 @@
       <span class="ticket-num-lg">#<%= ticket.nro_ticket %></span>
       <span class="badge estado-<%= ticket.estado.toLowerCase().replace(' ','-') %> badge-lg"><%= ticket.estado %></span>
       <span class="badge prio-<%= ticket.prioridad.toLowerCase() %> badge-lg"><%= ticket.prioridad %></span>
+      <% const channel = ticket.canal_origen || 'web'; %>
+      <span class="badge channel-badge canal-<%= channel %> badge-lg"><%= ({web:'Web',mail:'Mail',whatsapp:'WhatsApp',vfp:'VFP'}[channel] || channel) %></span>
     </h1>
   </div>
 </div>
@@ -20,6 +22,14 @@
       </div>
       <div class="card-body">
         <div class="info-grid">
+          <div class="info-item">
+            <label>Asunto</label>
+            <span><%= ticket.asunto || '-' %></span>
+          </div>
+          <div class="info-item">
+            <label>Canal</label>
+            <span class="badge channel-badge canal-<%= ticket.canal_origen || 'web' %>"><%= ({web:'Web',mail:'Mail',whatsapp:'WhatsApp',vfp:'VFP'}[ticket.canal_origen || 'web'] || ticket.canal_origen || 'Web') %></span>
+          </div>
           <div class="info-item">
             <label>Empresa</label>
             <strong><%= ticket.cliente_nombre || '-' %></strong>
@@ -37,6 +47,14 @@
             <span class="days-badge <%= ticket.dias_transcurridos > 30 ? 'days-overdue' : ticket.dias_transcurridos > 14 ? 'days-warning' : 'days-ok' %>">
               <%= ticket.dias_transcurridos %> dias
             </span>
+          </div>
+          <div class="info-item">
+            <label>Referencia</label>
+            <span><%= ticket.referencia_externa || '-' %></span>
+          </div>
+          <div class="info-item">
+            <label>Proceso</label>
+            <span><%= ticket.proceso || '-' %></span>
           </div>
           <div class="info-item">
             <label>Creado</label>
@@ -325,6 +343,10 @@
         <div class="assign-item">
           <label>Telefono</label>
           <div class="user-chip"><%= ticket.cliente_telefono || 'Sin telefono' %></div>
+        </div>
+        <div class="assign-item">
+          <label>Origen</label>
+          <div class="note-box"><%= ticket.origen_contacto || '' %><% if (ticket.origen_email) { %><br><%= ticket.origen_email %><% } %><% if (ticket.origen_telefono) { %><br><%= ticket.origen_telefono %><% } %><% if (!ticket.origen_contacto && !ticket.origen_email && !ticket.origen_telefono) { %>Sin datos de origen<% } %></div>
         </div>
         <% if (ticket.cliente_notas) { %>
         <div class="assign-item">

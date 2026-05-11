@@ -4,6 +4,25 @@ const { pool } = require('../config/db');
 const { requireLogin, requireDesarrollo } = require('../middleware/auth');
 const { fetchTicketContext } = require('../services/dev-radar');
 const { generateGroqSolution, getGroqConfig } = require('../services/groq-beta');
+const { fetchRecentMailPreviews, importMailAsTicket } = require('../services/mail-intake');
+const { createTicketFromExternal } = require('../services/ticket-ingestion');
+
+function requireWebhookToken(req, res, next) {
+  const expectedToken = process.env.WHATSAPP_WEBHOOK_TOKEN;
+  if (!expectedToken) {
+    return next();
+  }
+
+  const authHeader = req.get('authorization') || '';
+  const bearerToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
+  const receivedToken = req.get('x-webhook-token') || bearerToken;
+
+  if (receivedToken !== expectedToken) {
+    return res.status(401).json({ ok: false, error: 'Token de webhook invalido' });
+  }
+
+  next();
+}
 
 router.get('/notificaciones', requireLogin, async (req, res) => {
   const result = await pool.query(`
@@ -32,7 +51,7 @@ router.post('/notificaciones/leer-todas', requireLogin, async (req, res) => {
 });
 
 router.get('/stats', requireLogin, async (_req, res) => {
-  const [estadoRes, prioridadRes, tendenciaRes] = await Promise.all([
+  const [estadoRes, prioridadRes, tendenciaRes, canalRes] = await Promise.all([
     pool.query('SELECT estado, COUNT(*) AS total FROM tickets GROUP BY estado'),
     pool.query('SELECT prioridad, COUNT(*) AS total FROM tickets GROUP BY prioridad'),
     pool.query(`
@@ -41,14 +60,85 @@ router.get('/stats', requireLogin, async (_req, res) => {
       WHERE fecha_creacion >= NOW() - INTERVAL '12 weeks'
       GROUP BY semana
       ORDER BY semana
+    `),
+    pool.query(`
+      SELECT COALESCE(canal_origen, 'web') AS canal, COUNT(*) AS total
+      FROM tickets
+      GROUP BY COALESCE(canal_origen, 'web')
+      ORDER BY total DESC
     `)
   ]);
 
   res.json({
     estados: estadoRes.rows,
     prioridades: prioridadRes.rows,
-    tendencia: tendenciaRes.rows
+    tendencia: tendenciaRes.rows,
+    canales: canalRes.rows
   });
+});
+
+router.get('/mail/intake/preview', requireLogin, async (req, res) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit || '10', 10), 50);
+    const result = await fetchRecentMailPreviews({ limit });
+    res.json({ ok: true, ...result });
+  } catch (error) {
+    console.error('Mail intake preview error:', error.message);
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
+router.post('/mail/intake/import', requireLogin, async (req, res) => {
+  try {
+    const ticket = await importMailAsTicket({
+      messageId: req.body?.messageId,
+      uid: req.body?.uid,
+      limit: req.body?.limit || 50
+    });
+
+    res.json({ ok: true, ticket });
+  } catch (error) {
+    console.error('Mail intake import error:', error.message);
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
+router.post('/webhooks/whatsapp', requireWebhookToken, async (req, res) => {
+  try {
+    const payload = req.body || {};
+    const text = payload.text || payload.message || payload.body || '';
+    const phone = payload.phone || payload.from || payload.sender_phone || payload.senderPhone;
+    const name = payload.name || payload.sender_name || payload.senderName || '';
+    const externalId = payload.messageId || payload.message_id || payload.id || payload.external_id;
+
+    if (!phone || !text) {
+      return res.status(400).json({ ok: false, error: 'Faltan phone/from y text/message/body' });
+    }
+
+    const ticket = await createTicketFromExternal({
+      canal: 'whatsapp',
+      proveedor: payload.provider || 'bot-externo',
+      origenMensajeId: externalId,
+      origenTelefono: phone,
+      origenContacto: name,
+      remitente: phone,
+      asunto: payload.subject || `WhatsApp de ${name || phone}`,
+      reclamo: text,
+      cuerpo: text,
+      referenciaExterna: payload.reference || payload.referencia || null,
+      proceso: payload.process || payload.proceso || null,
+      payload
+    });
+
+    res.status(201).json({
+      ok: true,
+      ticket,
+      reply: `Recibimos tu reclamo. Ticket #${ticket.nro_ticket}.`
+    });
+  } catch (error) {
+    console.error('WhatsApp webhook error:', error.message);
+    res.status(500).json({ ok: false, error: error.message });
+  }
 });
 
 router.get('/groq/status', requireLogin, requireDesarrollo, (_req, res) => {

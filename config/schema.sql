@@ -49,10 +49,18 @@ CREATE TABLE IF NOT EXISTS tickets (
   cliente_id INTEGER REFERENCES clientes(id),
   reclamo TEXT NOT NULL,
   observacion TEXT,
+  asunto VARCHAR(255),
   estado VARCHAR(30) DEFAULT 'Pendiente' CHECK (estado IN ('Pendiente','En Proceso','Resuelto','Cerrado')),
   prioridad VARCHAR(20) DEFAULT 'Media' CHECK (prioridad IN ('Baja','Media','Alta','Urgente')),
   tipo_ticket VARCHAR(50),
   tipo_cliente_nombre VARCHAR(100),
+  canal_origen VARCHAR(30) DEFAULT 'web' CHECK (canal_origen IN ('web','mail','whatsapp','vfp')),
+  origen_contacto VARCHAR(150),
+  origen_email VARCHAR(150),
+  origen_telefono VARCHAR(60),
+  origen_mensaje_id VARCHAR(200),
+  referencia_externa VARCHAR(150),
+  proceso VARCHAR(60),
   receptor_id INTEGER REFERENCES usuarios(id),
   ejecutor_id INTEGER REFERENCES usuarios(id),
   fecha_creacion TIMESTAMP DEFAULT NOW(),
@@ -64,6 +72,39 @@ CREATE TABLE IF NOT EXISTS tickets (
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW()
 );
+
+ALTER TABLE tickets ADD COLUMN IF NOT EXISTS asunto VARCHAR(255);
+ALTER TABLE tickets ADD COLUMN IF NOT EXISTS canal_origen VARCHAR(30) DEFAULT 'web';
+ALTER TABLE tickets ADD COLUMN IF NOT EXISTS origen_contacto VARCHAR(150);
+ALTER TABLE tickets ADD COLUMN IF NOT EXISTS origen_email VARCHAR(150);
+ALTER TABLE tickets ADD COLUMN IF NOT EXISTS origen_telefono VARCHAR(60);
+ALTER TABLE tickets ADD COLUMN IF NOT EXISTS origen_mensaje_id VARCHAR(200);
+ALTER TABLE tickets ADD COLUMN IF NOT EXISTS referencia_externa VARCHAR(150);
+ALTER TABLE tickets ADD COLUMN IF NOT EXISTS proceso VARCHAR(60);
+UPDATE tickets SET canal_origen = 'web' WHERE canal_origen IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_tickets_canal_origen ON tickets(canal_origen);
+CREATE INDEX IF NOT EXISTS idx_tickets_origen_email ON tickets(LOWER(origen_email));
+CREATE INDEX IF NOT EXISTS idx_tickets_referencia_externa ON tickets(referencia_externa);
+
+-- Auditoria de mensajes entrantes/salientes por canales externos
+CREATE TABLE IF NOT EXISTS ticket_comunicaciones (
+  id SERIAL PRIMARY KEY,
+  ticket_id INTEGER REFERENCES tickets(id) ON DELETE CASCADE,
+  canal VARCHAR(30) NOT NULL CHECK (canal IN ('web','mail','whatsapp','vfp')),
+  direccion VARCHAR(20) NOT NULL CHECK (direccion IN ('entrada','salida')),
+  proveedor VARCHAR(80),
+  mensaje_id VARCHAR(200),
+  remitente VARCHAR(200),
+  destinatario VARCHAR(200),
+  asunto VARCHAR(255),
+  cuerpo TEXT,
+  payload JSONB,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_ticket_comunicaciones_ticket ON ticket_comunicaciones(ticket_id);
+CREATE INDEX IF NOT EXISTS idx_ticket_comunicaciones_mensaje ON ticket_comunicaciones(mensaje_id);
 
 -- Comentarios / historial
 CREATE TABLE IF NOT EXISTS comentarios (
@@ -121,6 +162,12 @@ INSERT INTO usuarios (nombre, email, password, rol) VALUES
 ('Jeremias Montoya', 'jeremias@empresa.com', '$2a$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'desarrollo'),
 ('Soporte General', 'soporte@empresa.com', '$2a$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'soporte')
 ON CONFLICT (email) DO NOTHING;
+
+INSERT INTO clientes (nombre, contacto_nombre, email, telefono, notas)
+SELECT 'jeremontoya', 'jeremontoya', 'jeremontoya155@gmail.com', NULL, 'Cliente de prueba para ingreso de tickets por mail y WhatsApp'
+WHERE NOT EXISTS (
+  SELECT 1 FROM clientes WHERE LOWER(email) = LOWER('jeremontoya155@gmail.com')
+);
 
 -- Trigger para updated_at
 CREATE OR REPLACE FUNCTION update_updated_at()

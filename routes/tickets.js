@@ -80,7 +80,7 @@ function groupAttachmentsByComment(attachments) {
 }
 
 router.get('/', requireLogin, async (req, res) => {
-  const { estado, prioridad, buscar, page = 1 } = req.query;
+  const { estado, prioridad, canal, buscar, page = 1 } = req.query;
   const limit = 15;
   const offset = (page - 1) * limit;
   const user = req.session.user;
@@ -107,8 +107,24 @@ router.get('/', requireLogin, async (req, res) => {
     pIdx++;
   }
 
+  if (canal) {
+    whereClause += ` AND COALESCE(t.canal_origen, 'web') = $${pIdx}`;
+    params.push(canal);
+    pIdx++;
+  }
+
   if (buscar) {
-    whereClause += ` AND (t.reclamo ILIKE $${pIdx} OR c.nombre ILIKE $${pIdx} OR t.nro_ticket::text LIKE $${pIdx})`;
+    whereClause += ` AND (
+      t.reclamo ILIKE $${pIdx}
+      OR t.asunto ILIKE $${pIdx}
+      OR t.origen_email ILIKE $${pIdx}
+      OR t.origen_telefono ILIKE $${pIdx}
+      OR t.referencia_externa ILIKE $${pIdx}
+      OR c.nombre ILIKE $${pIdx}
+      OR c.email ILIKE $${pIdx}
+      OR c.telefono ILIKE $${pIdx}
+      OR t.nro_ticket::text LIKE $${pIdx}
+    )`;
     params.push(`%${buscar}%`);
     pIdx++;
   }
@@ -168,7 +184,7 @@ router.get('/', requireLogin, async (req, res) => {
         total: totalPages,
         count: parseInt(countRes.rows[0].count, 10)
       },
-      filters: { estado, prioridad, buscar },
+      filters: { estado, prioridad, canal, buscar },
       moment
     });
   } catch (error) {
@@ -193,7 +209,23 @@ router.get('/nuevo', requireLogin, async (_req, res) => {
 });
 
 router.post('/nuevo', requireLogin, withImageUpload('imagenes', '/tickets/nuevo'), async (req, res) => {
-  const { cliente_id, reclamo, observacion, prioridad, estado, receptor_id, ejecutor_id, notificar_creador_mail, creado_desde_mobile } = req.body;
+  const {
+    cliente_id,
+    reclamo,
+    observacion,
+    asunto,
+    prioridad,
+    estado,
+    canal_origen,
+    origen_email,
+    origen_telefono,
+    referencia_externa,
+    proceso,
+    receptor_id,
+    ejecutor_id,
+    notificar_creador_mail,
+    creado_desde_mobile
+  } = req.body;
   const user = req.session.user;
   const client = await pool.connect();
 
@@ -205,16 +237,24 @@ router.post('/nuevo', requireLogin, withImageUpload('imagenes', '/tickets/nuevo'
 
     const result = await client.query(`
       INSERT INTO tickets (
-        nro_ticket, cliente_id, reclamo, observacion, prioridad, estado, receptor_id, ejecutor_id, fecha_creacion, fecha_asignacion
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
+        nro_ticket, cliente_id, reclamo, observacion, asunto, prioridad, estado,
+        canal_origen, origen_email, origen_telefono, referencia_externa, proceso,
+        receptor_id, ejecutor_id, fecha_creacion, fecha_asignacion
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, NOW(), NOW())
       RETURNING id
     `, [
       nroTicket,
       cliente_id,
       reclamo,
       observacion || '',
+      asunto || null,
       prioridad,
       estado || 'Pendiente',
+      canal_origen || 'web',
+      origen_email || null,
+      origen_telefono || null,
+      referencia_externa || null,
+      proceso || null,
       receptor_id || user.id,
       ejecutor_id || user.id
     ]);
@@ -271,6 +311,12 @@ router.post('/nuevo', requireLogin, withImageUpload('imagenes', '/tickets/nuevo'
   } finally {
     client.release();
   }
+});
+
+router.get('/mail-intake', requireLogin, (_req, res) => {
+  res.render('tickets/mail-intake', {
+    title: 'Intake Mail'
+  });
 });
 
 router.get('/:id', requireLogin, async (req, res) => {

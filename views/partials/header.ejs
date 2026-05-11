@@ -21,6 +21,9 @@
     <a href="/tickets/nuevo" class="nav-link btn-new">
       <i class="fas fa-plus"></i> <span>Nuevo</span>
     </a>
+    <a href="/tickets/mail-intake" class="nav-link <%= title.includes('Intake Mail') ? 'active' : '' %>">
+      <i class="fas fa-envelope-open-text"></i> <span>Mail</span>
+    </a>
     <% if (user.rol === 'admin') { %>
     <a href="/admin" class="nav-link">
       <i class="fas fa-cog"></i> <span>Admin</span>

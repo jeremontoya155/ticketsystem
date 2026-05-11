@@ -3,7 +3,7 @@
 <div class="page-header">
   <div>
     <h1><i class="fas fa-ticket-alt"></i> Tickets</h1>
-    <p class="subtitle">Gestión de reclamos y soporte</p>
+    <p class="subtitle">Bandeja centralizada para web, mail, WhatsApp y VFP</p>
   </div>
   <a href="/tickets/nuevo" class="btn-primary"><i class="fas fa-plus"></i> Nuevo Ticket</a>
 </div>
@@ -68,7 +68,7 @@
   <form method="GET" action="/tickets" class="filter-form">
     <div class="filter-group">
       <i class="fas fa-search"></i>
-      <input type="text" name="buscar" placeholder="Buscar por cliente, reclamo o #..." value="<%= filters.buscar || '' %>">
+      <input type="text" name="buscar" placeholder="Buscar por cliente, mail, telefono, referencia o #..." value="<%= filters.buscar || '' %>">
     </div>
     <select name="estado">
       <option value="">Todos los estados</option>
@@ -80,6 +80,12 @@
       <option value="">Toda prioridad</option>
       <% ['Baja','Media','Alta','Urgente'].forEach(p => { %>
         <option value="<%= p %>" <%= filters.prioridad === p ? 'selected' : '' %>><%= p %></option>
+      <% }) %>
+    </select>
+    <select name="canal">
+      <option value="">Todos los canales</option>
+      <% [['web','Web'],['mail','Mail'],['whatsapp','WhatsApp'],['vfp','VFP']].forEach(([value,label]) => { %>
+        <option value="<%= value %>" <%= filters.canal === value ? 'selected' : '' %>><%= label %></option>
       <% }) %>
     </select>
     <button type="submit" class="btn-primary"><i class="fas fa-filter"></i> Filtrar</button>
@@ -100,6 +106,7 @@
       <tr>
         <th>#</th>
         <th>Cliente</th>
+        <th>Canal</th>
         <th>Reclamo</th>
         <th>Estado</th>
         <th>Prioridad</th>
@@ -118,6 +125,11 @@
             <span class="client-name"><%= t.cliente_nombre || '—' %></span>
             <small class="tc-badge"><%= t.tc || '' %></small>
           </div>
+        </td>
+        <td data-label="Canal">
+          <% const channel = t.canal_origen || 'web'; %>
+          <span class="badge channel-badge canal-<%= channel %>"><%= ({web:'Web',mail:'Mail',whatsapp:'WhatsApp',vfp:'VFP'}[channel] || channel) %></span>
+          <% if (t.referencia_externa) { %><small class="muted-line"><%= t.referencia_externa %></small><% } %>
         </td>
         <td data-label="Reclamo"><div class="reclamo-cell"><%= t.reclamo ? t.reclamo.substring(0, 80) + (t.reclamo.length > 80 ? '...' : '') : '—' %></div></td>
         <td data-label="Estado"><span class="badge estado-<%= t.estado.toLowerCase().replace(' ','-') %>"><%= t.estado %></span></td>
@@ -141,16 +153,16 @@
 <% if (pagination.total > 1) { %>
 <div class="pagination">
   <% if (pagination.current > 1) { %>
-    <a href="?page=<%= pagination.current - 1 %>&estado=<%= filters.estado||'' %>&prioridad=<%= filters.prioridad||'' %>&buscar=<%= filters.buscar||'' %>" class="page-btn">
+    <a href="?page=<%= pagination.current - 1 %>&estado=<%= filters.estado||'' %>&prioridad=<%= filters.prioridad||'' %>&canal=<%= filters.canal||'' %>&buscar=<%= filters.buscar||'' %>" class="page-btn">
       <i class="fas fa-chevron-left"></i>
     </a>
   <% } %>
   <% for(let i = Math.max(1, pagination.current-2); i <= Math.min(pagination.total, pagination.current+2); i++) { %>
-    <a href="?page=<%= i %>&estado=<%= filters.estado||'' %>&prioridad=<%= filters.prioridad||'' %>&buscar=<%= filters.buscar||'' %>"
+    <a href="?page=<%= i %>&estado=<%= filters.estado||'' %>&prioridad=<%= filters.prioridad||'' %>&canal=<%= filters.canal||'' %>&buscar=<%= filters.buscar||'' %>"
        class="page-btn <%= i === pagination.current ? 'active' : '' %>"><%= i %></a>
   <% } %>
   <% if (pagination.current < pagination.total) { %>
-    <a href="?page=<%= pagination.current + 1 %>&estado=<%= filters.estado||'' %>&prioridad=<%= filters.prioridad||'' %>&buscar=<%= filters.buscar||'' %>" class="page-btn">
+    <a href="?page=<%= pagination.current + 1 %>&estado=<%= filters.estado||'' %>&prioridad=<%= filters.prioridad||'' %>&canal=<%= filters.canal||'' %>&buscar=<%= filters.buscar||'' %>" class="page-btn">
       <i class="fas fa-chevron-right"></i>
     </a>
   <% } %>
@@ -196,6 +208,15 @@ fetch('/api/stats').then(r=>r.json()).then(data => {
     },
     options: { plugins: { legend: { labels: { color: textColor } } }, scales: { x: { ticks: { color: textColor }, grid: { color: gridColor } }, y: { ticks: { color: textColor }, grid: { color: gridColor } } } }
   });
+
+  if (data.canales?.length) {
+    document.querySelector('[data-channel-strip]')?.remove();
+    const strip = document.createElement('div');
+    strip.className = 'channel-strip';
+    strip.setAttribute('data-channel-strip', '1');
+    strip.innerHTML = data.canales.map(item => `<span class="badge channel-badge canal-${item.canal}">${item.canal}: ${item.total}</span>`).join('');
+    document.querySelector('.charts-row')?.after(strip);
+  }
 });
 </script>
 
