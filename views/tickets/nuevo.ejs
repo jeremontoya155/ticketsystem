@@ -1,4 +1,8 @@
 <%- include('../partials/header') %>
+<%
+  const isClientUser = user.rol === 'cliente';
+  const clientCompany = isClientUser ? clientes[0] : null;
+%>
 
 <div class="page-header">
   <div>
@@ -8,17 +12,28 @@
 </div>
 
 <div class="form-container ticket-compose">
-  <form action="/tickets/nuevo" method="POST" enctype="multipart/form-data" class="ticket-form">
+  <form action="/tickets/nuevo" method="POST" enctype="multipart/form-data" class="ticket-form" data-ticket-similar-form>
     <input type="hidden" name="creado_desde_mobile" value="0" data-mobile-ticket-flag>
+    <% if (isClientUser) { %>
+      <input type="hidden" name="cliente_id" value="<%= user.cliente_id || '' %>">
+      <input type="hidden" name="canal_origen" value="web">
+    <% } %>
     <div class="form-row">
       <div class="form-group">
         <label><i class="fas fa-building"></i> Empresa <span class="req">*</span></label>
+        <% if (isClientUser) { %>
+          <input type="text" class="form-input" value="<%= clientCompany ? clientCompany.nombre : 'Sin empresa asignada' %>" readonly>
+          <% if (!clientCompany) { %>
+            <small class="field-help text-warning">Tu usuario no tiene una empresa asociada. Pedi a un administrador que la configure.</small>
+          <% } %>
+        <% } else { %>
         <select name="cliente_id" required class="form-select">
           <option value="">Seleccionar empresa...</option>
           <% clientes.forEach(c => { %>
             <option value="<%= c.id %>"><%= c.nombre %> (<%= c.nombre_tipo || 'Sin tipo' %>)</option>
           <% }) %>
         </select>
+        <% } %>
       </div>
       <div class="form-group">
         <label><i class="fas fa-flag"></i> Prioridad <span class="req">*</span></label>
@@ -32,6 +47,7 @@
     </div>
 
     <div class="form-row">
+      <% if (!isClientUser) { %>
       <div class="form-group">
         <label><i class="fas fa-route"></i> Canal de origen</label>
         <select name="canal_origen" class="form-select">
@@ -41,6 +57,7 @@
           <option value="vfp">VFP</option>
         </select>
       </div>
+      <% } %>
       <div class="form-group">
         <label><i class="fas fa-heading"></i> Asunto</label>
         <input type="text" name="asunto" placeholder="Resumen corto del caso" class="form-input" value="<%= ticket.asunto || '' %>">
@@ -50,7 +67,7 @@
     <div class="form-row">
       <div class="form-group">
         <label><i class="fas fa-envelope"></i> Email origen</label>
-        <input type="email" name="origen_email" placeholder="cliente@empresa.com" class="form-input">
+        <input type="email" name="origen_email" placeholder="cliente@empresa.com" class="form-input" value="<%= isClientUser ? user.email : '' %>">
       </div>
       <div class="form-group">
         <label><i class="fas fa-phone"></i> Telefono origen</label>
@@ -76,6 +93,7 @@
       </div>
     </div>
 
+    <% if (!isClientUser) { %>
     <div class="form-row">
       <div class="form-group">
         <label><i class="fas fa-user-check"></i> Receptor</label>
@@ -94,18 +112,31 @@
         </select>
       </div>
     </div>
+    <% } %>
 
     <div class="form-group">
       <label><i class="fas fa-exclamation-circle"></i> Reclamo / Descripcion <span class="req">*</span></label>
       <textarea name="reclamo" rows="5" placeholder="Describir detalladamente el problema o solicitud..." required class="form-textarea"><%= ticket.reclamo || '' %></textarea>
     </div>
 
+    <div class="similar-warning" data-similar-warning hidden>
+      <div class="similar-warning-title">
+        <i class="fas fa-triangle-exclamation"></i>
+        Posible tema ya ocupado
+      </div>
+      <p>Hay tickets abiertos parecidos para esta empresa. Revisalos por las dudas antes de cargar otro.</p>
+      <div data-similar-list></div>
+    </div>
+
+    <% if (!isClientUser) { %>
     <div class="form-group">
       <label><i class="fas fa-comment-alt"></i> Observaciones</label>
       <textarea name="observacion" rows="3" placeholder="Notas internas, contexto adicional..." class="form-textarea"><%= ticket.observacion || '' %></textarea>
     </div>
+    <% } %>
 
     <div class="form-row">
+      <% if (!isClientUser) { %>
       <div class="form-group">
         <label><i class="fas fa-tag"></i> Estado inicial</label>
         <select name="estado" class="form-select">
@@ -113,6 +144,7 @@
           <option value="En Proceso">En Proceso</option>
         </select>
       </div>
+      <% } %>
       <div class="form-group">
         <label><i class="fas fa-image"></i> Imagenes</label>
         <input type="file" name="imagenes" accept="image/*" multiple class="form-input">
@@ -121,7 +153,7 @@
     </div>
 
     <label class="checkbox-card">
-      <input type="checkbox" name="notificar_creador_mail">
+      <input type="checkbox" name="notificar_creador_mail" <%= isClientUser ? 'checked' : '' %>>
       <span>
         <strong>Enviarme confirmacion por mail</strong>
         <small>Opcional. Se manda un resumen del ticket a <%= user.email %>.</small>
@@ -148,6 +180,63 @@
     if (isMobile) {
       mobileFlag.value = '1';
     }
+  })();
+
+  (() => {
+    const form = document.querySelector('[data-ticket-similar-form]');
+    const warning = document.querySelector('[data-similar-warning]');
+    const list = document.querySelector('[data-similar-list]');
+    if (!form || !warning || !list) return;
+
+    const clienteField = form.querySelector('[name="cliente_id"]');
+    const asuntoField = form.querySelector('[name="asunto"]');
+    const reclamoField = form.querySelector('[name="reclamo"]');
+    let timer;
+
+    const renderSimilarTickets = (tickets) => {
+      if (!tickets.length) {
+        warning.hidden = true;
+        list.innerHTML = '';
+        return;
+      }
+
+      warning.hidden = false;
+      list.innerHTML = tickets.map((ticket) => `
+        <a href="/tickets/${ticket.id}" target="_blank" class="similar-ticket-link">
+          <strong>#${ticket.nro_ticket}</strong>
+          <span>${ticket.asunto || 'Sin asunto'}</span>
+          <small>${ticket.estado} - ${ticket.prioridad}</small>
+        </a>
+      `).join('');
+    };
+
+    const checkSimilarTickets = async () => {
+      const clienteId = clienteField?.value;
+      const asunto = asuntoField?.value || '';
+      const reclamo = reclamoField?.value || '';
+
+      if (!clienteId || `${asunto} ${reclamo}`.trim().length < 8) {
+        renderSimilarTickets([]);
+        return;
+      }
+
+      try {
+        const params = new URLSearchParams({ cliente_id: clienteId, asunto, reclamo });
+        const response = await fetch(`/api/tickets/similares?${params.toString()}`);
+        const payload = await response.json();
+        renderSimilarTickets(payload.ok ? payload.tickets : []);
+      } catch (error) {
+        console.error('No se pudieron consultar tickets similares:', error);
+      }
+    };
+
+    [clienteField, asuntoField, reclamoField].forEach((field) => {
+      field?.addEventListener('input', () => {
+        clearTimeout(timer);
+        timer = setTimeout(checkSimilarTickets, 450);
+      });
+      field?.addEventListener('change', checkSimilarTickets);
+    });
   })();
 </script>
 

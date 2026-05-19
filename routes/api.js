@@ -7,6 +7,18 @@ const { generateGroqSolution, getGroqConfig } = require('../services/groq-beta')
 const { fetchRecentMailPreviews, importMailAsTicket } = require('../services/mail-intake');
 const { createTicketFromExternal } = require('../services/ticket-ingestion');
 
+function buildSearchTokens(value) {
+  const stopWords = new Set(['para', 'pero', 'como', 'este', 'esta', 'esto', 'con', 'sin', 'por', 'del', 'las', 'los', 'una', 'unos', 'unas', 'que']);
+
+  return Array.from(new Set(String(value || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .match(/[a-z0-9]{4,}/g) || []))
+    .filter((token) => !stopWords.has(token))
+    .slice(0, 6);
+}
+
 function requireWebhookToken(req, res, next) {
   const expectedToken = process.env.WHATSAPP_WEBHOOK_TOKEN;
   if (!expectedToken) {
@@ -77,8 +89,49 @@ router.get('/stats', requireLogin, async (_req, res) => {
   });
 });
 
+router.get('/tickets/similares', requireLogin, async (req, res) => {
+  try {
+    const user = req.session.user;
+    const clienteId = user.rol === 'cliente' ? user.cliente_id : req.query.cliente_id;
+    const texto = `${req.query.asunto || ''} ${req.query.reclamo || ''}`;
+    const tokens = buildSearchTokens(texto);
+
+    if (!clienteId || tokens.length === 0) {
+      return res.json({ ok: true, tickets: [] });
+    }
+
+    const params = [clienteId];
+    const tokenFilters = tokens.map((token) => {
+      params.push(`%${token}%`);
+      const idx = params.length;
+      return `(t.asunto ILIKE $${idx} OR t.reclamo ILIKE $${idx})`;
+    });
+
+    const result = await pool.query(`
+      SELECT id, nro_ticket, asunto, estado, prioridad, fecha_creacion
+      FROM tickets t
+      WHERE t.cliente_id = $1
+        AND t.estado IN ('Pendiente', 'En Proceso')
+        AND (${tokenFilters.join(' OR ')})
+      ORDER BY
+        CASE t.estado WHEN 'En Proceso' THEN 1 ELSE 2 END,
+        t.fecha_creacion DESC
+      LIMIT 5
+    `, params);
+
+    res.json({ ok: true, tickets: result.rows });
+  } catch (error) {
+    console.error('Similar tickets error:', error.message);
+    res.status(500).json({ ok: false, error: 'No se pudieron consultar tickets similares' });
+  }
+});
+
 router.get('/mail/intake/preview', requireLogin, async (req, res) => {
   try {
+    if (req.session.user.rol === 'cliente') {
+      return res.status(403).json({ ok: false, error: 'Acceso restringido' });
+    }
+
     const limit = Math.min(parseInt(req.query.limit || '10', 10), 50);
     const result = await fetchRecentMailPreviews({ limit });
     res.json({ ok: true, ...result });
@@ -90,6 +143,10 @@ router.get('/mail/intake/preview', requireLogin, async (req, res) => {
 
 router.post('/mail/intake/import', requireLogin, async (req, res) => {
   try {
+    if (req.session.user.rol === 'cliente') {
+      return res.status(403).json({ ok: false, error: 'Acceso restringido' });
+    }
+
     const ticket = await importMailAsTicket({
       messageId: req.body?.messageId,
       uid: req.body?.uid,

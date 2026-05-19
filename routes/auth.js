@@ -23,7 +23,7 @@ router.post('/login', async (req, res) => {
       req.flash('error', 'Email o contraseña incorrectos');
       return res.redirect('/login');
     }
-    req.session.user = { id: user.id, nombre: user.nombre, email: user.email, rol: user.rol };
+    req.session.user = { id: user.id, nombre: user.nombre, email: user.email, rol: user.rol, cliente_id: user.cliente_id };
     req.flash('success', `Bienvenido, ${user.nombre}!`);
     res.redirect('/tickets');
   } catch (err) {

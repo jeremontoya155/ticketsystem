@@ -503,6 +503,7 @@ body {
 .badge-admin { background: rgba(139,92,246,.15); color: #a78bfa; }
 .badge-desarrollo { background: rgba(59,130,246,.15); color: #60a5fa; }
 .badge-soporte { background: rgba(16,185,129,.15); color: #34d399; }
+.badge-cliente { background: rgba(245,158,11,.15); color: #fbbf24; }
 
 .channel-badge {
   border: 1px solid rgba(255,255,255,.08);
@@ -826,6 +827,41 @@ body {
   color: var(--text-muted);
   font-size: 12px;
 }
+.text-warning { color: var(--warning); }
+.similar-warning {
+  border: 1px solid rgba(245,158,11,.32);
+  background: rgba(245,158,11,.10);
+  color: #fde68a;
+  border-radius: 16px;
+  padding: 14px;
+}
+.similar-warning[hidden] { display: none; }
+.similar-warning-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+.similar-warning p {
+  color: var(--text-muted);
+  margin-bottom: 10px;
+}
+.similar-ticket-link {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 10px;
+  color: var(--text);
+  text-decoration: none;
+  border-radius: 10px;
+  background: rgba(2,6,23,.36);
+  border: 1px solid rgba(148,163,184,.16);
+}
+.similar-ticket-link + .similar-ticket-link { margin-top: 8px; }
+.similar-ticket-link:hover { border-color: rgba(245,158,11,.45); }
+.similar-ticket-link small { color: var(--text-muted); }
 .checkbox-card {
   display: flex;
   gap: 12px;

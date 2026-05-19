@@ -68,7 +68,7 @@
                 <span class="user-avatar"><%= u.nombre.charAt(0).toUpperCase() %></span>
                 <div>
                   <div><%= u.nombre %></div>
-                  <small class="muted-line"><%= u.email_notif || u.email %></small>
+                  <small class="muted-line"><%= u.rol === 'cliente' ? (u.cliente_nombre || 'Cliente sin empresa') : (u.email_notif || u.email) %></small>
                 </div>
               </div>
             </td>

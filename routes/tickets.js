@@ -79,6 +79,18 @@ function groupAttachmentsByComment(attachments) {
   }, {});
 }
 
+async function findDefaultInternalUser(client) {
+  const result = await client.query(`
+    SELECT id
+    FROM usuarios
+    WHERE activo = true AND rol IN ('soporte', 'admin', 'desarrollo')
+    ORDER BY CASE rol WHEN 'soporte' THEN 1 WHEN 'admin' THEN 2 ELSE 3 END, id
+    LIMIT 1
+  `);
+
+  return result.rows[0]?.id || null;
+}
+
 router.get('/', requireLogin, async (req, res) => {
   const { estado, prioridad, canal, buscar, page = 1 } = req.query;
   const limit = 15;
@@ -86,8 +98,26 @@ router.get('/', requireLogin, async (req, res) => {
   const user = req.session.user;
 
   let whereClause = '1=1';
+  let statsWhereClause = '1=1';
   const params = [];
+  const statsParams = [];
   let pIdx = 1;
+  let statsIdx = 1;
+
+  if (user.rol === 'cliente') {
+    if (user.cliente_id) {
+      whereClause += ` AND t.cliente_id = $${pIdx}`;
+      params.push(user.cliente_id);
+      pIdx++;
+
+      statsWhereClause += ` AND t.cliente_id = $${statsIdx}`;
+      statsParams.push(user.cliente_id);
+      statsIdx++;
+    } else {
+      whereClause += ' AND 1=0';
+      statsWhereClause += ' AND 1=0';
+    }
+  }
 
   if (user.rol === 'desarrollo') {
     whereClause += ` AND (t.ejecutor_id = $${pIdx} OR t.receptor_id = $${pIdx})`;
@@ -161,8 +191,9 @@ router.get('/', requireLogin, async (req, res) => {
           COUNT(*) FILTER (WHERE estado = 'Cerrado') AS cerrado,
           COUNT(*) FILTER (WHERE prioridad = 'Alta' OR prioridad = 'Urgente') AS alta_prioridad,
           COUNT(*) FILTER (WHERE dias_transcurridos > 30) AS vencidos
-        FROM tickets
-      `),
+        FROM tickets t
+        WHERE ${statsWhereClause}
+      `, statsParams),
       pool.query(`
         SELECT id, mensaje, tipo, created_at, ticket_id
         FROM notificaciones
@@ -194,10 +225,18 @@ router.get('/', requireLogin, async (req, res) => {
   }
 });
 
-router.get('/nuevo', requireLogin, async (_req, res) => {
+router.get('/nuevo', requireLogin, async (req, res) => {
+  const user = req.session.user;
   const [clientesRes, usuariosRes] = await Promise.all([
-    pool.query('SELECT * FROM clientes ORDER BY nombre'),
-    pool.query('SELECT id, nombre, rol FROM usuarios WHERE activo = true ORDER BY nombre')
+    user.rol === 'cliente'
+      ? pool.query('SELECT * FROM clientes WHERE id = $1', [user.cliente_id || 0])
+      : pool.query('SELECT * FROM clientes ORDER BY nombre'),
+    pool.query(`
+      SELECT id, nombre, rol
+      FROM usuarios
+      WHERE activo = true AND rol <> 'cliente'
+      ORDER BY nombre
+    `)
   ]);
 
   res.render('tickets/nuevo', {
@@ -232,6 +271,20 @@ router.post('/nuevo', requireLogin, withImageUpload('imagenes', '/tickets/nuevo'
   try {
     await client.query('BEGIN');
 
+    const isClientUser = user.rol === 'cliente';
+    const finalClienteId = isClientUser ? user.cliente_id : cliente_id;
+    if (!finalClienteId) {
+      throw new Error('No hay empresa asociada para crear el ticket');
+    }
+
+    const defaultInternalUserId = isClientUser ? await findDefaultInternalUser(client) : null;
+    const finalReceptorId = isClientUser ? defaultInternalUserId : (receptor_id || user.id);
+    const finalEjecutorId = isClientUser ? defaultInternalUserId : (ejecutor_id || user.id);
+    const finalEstado = isClientUser ? 'Pendiente' : (estado || 'Pendiente');
+    const finalPrioridad = prioridad || 'Media';
+    const finalCanalOrigen = isClientUser ? 'web' : (canal_origen || 'web');
+    const finalOrigenEmail = origen_email || (isClientUser ? user.email : null);
+
     const maxRes = await client.query('SELECT COALESCE(MAX(nro_ticket), 90000) + 1 AS next FROM tickets');
     const nroTicket = maxRes.rows[0].next;
 
@@ -244,19 +297,19 @@ router.post('/nuevo', requireLogin, withImageUpload('imagenes', '/tickets/nuevo'
       RETURNING id
     `, [
       nroTicket,
-      cliente_id,
+      finalClienteId,
       reclamo,
       observacion || '',
       asunto || null,
-      prioridad,
-      estado || 'Pendiente',
-      canal_origen || 'web',
-      origen_email || null,
+      finalPrioridad,
+      finalEstado,
+      finalCanalOrigen,
+      finalOrigenEmail || null,
       origen_telefono || null,
       referencia_externa || null,
       proceso || null,
-      receptor_id || user.id,
-      ejecutor_id || user.id
+      finalReceptorId,
+      finalEjecutorId
     ]);
 
     const ticketId = result.rows[0].id;
@@ -267,7 +320,7 @@ router.post('/nuevo', requireLogin, withImageUpload('imagenes', '/tickets/nuevo'
     await client.query(`
       INSERT INTO comentarios (ticket_id, usuario_id, comentario, tipo)
       VALUES ($1, $2, $3, 'cambio_estado')
-    `, [ticketId, user.id, `Ticket creado con estado: ${estado || 'Pendiente'}`]);
+    `, [ticketId, user.id, `Ticket creado con estado: ${finalEstado}`]);
 
     await client.query('COMMIT');
 
@@ -278,7 +331,7 @@ router.post('/nuevo', requireLogin, withImageUpload('imagenes', '/tickets/nuevo'
       usuarioOrigenId: user.id
     });
 
-    if (notificar_creador_mail === 'on') {
+    if (notificar_creador_mail === 'on' || isClientUser) {
       try {
         await enviarConfirmacionCreadorTicket({
           ticketId,
@@ -314,6 +367,11 @@ router.post('/nuevo', requireLogin, withImageUpload('imagenes', '/tickets/nuevo'
 });
 
 router.get('/mail-intake', requireLogin, (_req, res) => {
+  if (_req.session.user.rol === 'cliente') {
+    _req.flash('error', 'Acceso restringido');
+    return res.redirect('/tickets');
+  }
+
   res.render('tickets/mail-intake', {
     title: 'Intake Mail'
   });
@@ -321,6 +379,13 @@ router.get('/mail-intake', requireLogin, (_req, res) => {
 
 router.get('/:id', requireLogin, async (req, res) => {
   try {
+    const ticketWhere = req.session.user.rol === 'cliente'
+      ? 't.id = $1 AND t.cliente_id = $2'
+      : 't.id = $1';
+    const ticketParams = req.session.user.rol === 'cliente'
+      ? [req.params.id, req.session.user.cliente_id || 0]
+      : [req.params.id];
+
     const [ticketRes, comentariosRes, usuariosRes, notifRes, adjuntosRes] = await Promise.all([
       pool.query(`
         SELECT
@@ -336,8 +401,8 @@ router.get('/:id', requireLogin, async (req, res) => {
         LEFT JOIN clientes c ON t.cliente_id = c.id
         LEFT JOIN usuarios u1 ON t.receptor_id = u1.id
         LEFT JOIN usuarios u2 ON t.ejecutor_id = u2.id
-        WHERE t.id = $1
-      `, [req.params.id]),
+        WHERE ${ticketWhere}
+      `, ticketParams),
       pool.query(`
         SELECT cm.*, u.nombre AS usuario_nombre, u.rol
         FROM comentarios cm
@@ -345,7 +410,12 @@ router.get('/:id', requireLogin, async (req, res) => {
         WHERE cm.ticket_id = $1
         ORDER BY cm.created_at ASC
       `, [req.params.id]),
-      pool.query('SELECT id, nombre, rol FROM usuarios WHERE activo = true ORDER BY nombre'),
+      pool.query(`
+        SELECT id, nombre, rol
+        FROM usuarios
+        WHERE activo = true AND rol <> 'cliente'
+        ORDER BY nombre
+      `),
       pool.query('SELECT COUNT(*) AS unread FROM notificaciones WHERE usuario_id = $1 AND leida = false', [req.session.user.id]),
       pool.query(`
         SELECT *
@@ -399,6 +469,11 @@ router.post('/:id/estado', requireLogin, async (req, res) => {
   const user = req.session.user;
 
   try {
+    if (user.rol === 'cliente') {
+      req.flash('error', 'Los usuarios cliente no pueden cambiar el estado');
+      return res.redirect(`/tickets/${req.params.id}`);
+    }
+
     const oldRes = await pool.query('SELECT estado, nro_ticket FROM tickets WHERE id = $1', [req.params.id]);
     const old = oldRes.rows[0];
 
@@ -447,7 +522,13 @@ router.post('/:id/comentar', requireLogin, withImageUpload('imagenes', (req) => 
   try {
     await client.query('BEGIN');
 
-    const tkRes = await client.query('SELECT nro_ticket FROM tickets WHERE id = $1', [req.params.id]);
+    const ticketWhere = user.rol === 'cliente'
+      ? 'id = $1 AND cliente_id = $2'
+      : 'id = $1';
+    const ticketParams = user.rol === 'cliente'
+      ? [req.params.id, user.cliente_id || 0]
+      : [req.params.id];
+    const tkRes = await client.query(`SELECT nro_ticket FROM tickets WHERE ${ticketWhere}`, ticketParams);
     if (!tkRes.rows[0]) {
       throw new Error('Ticket no encontrado');
     }
@@ -488,6 +569,11 @@ router.post('/:id/asignar', requireLogin, async (req, res) => {
   const user = req.session.user;
 
   try {
+    if (user.rol === 'cliente') {
+      req.flash('error', 'Los usuarios cliente no pueden reasignar tickets');
+      return res.redirect(`/tickets/${req.params.id}`);
+    }
+
     await pool.query(`
       UPDATE tickets
       SET ejecutor_id = $1, receptor_id = $2, updated_at = NOW()
@@ -521,6 +607,11 @@ router.post('/:id/enviar-reporte', requireLogin, async (req, res) => {
   const user = req.session.user;
 
   try {
+    if (user.rol === 'cliente') {
+      req.flash('error', 'Los usuarios cliente no pueden enviar reportes internos');
+      return res.redirect(`/tickets/${req.params.id}`);
+    }
+
     if (!destinatario || !mensaje) {
       throw new Error('Debes completar destinatario y mensaje');
     }

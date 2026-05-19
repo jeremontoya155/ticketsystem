@@ -18,12 +18,17 @@ CREATE TABLE IF NOT EXISTS usuarios (
   nombre VARCHAR(100) NOT NULL,
   email VARCHAR(150) UNIQUE NOT NULL,
   password VARCHAR(255) NOT NULL,
-  rol VARCHAR(20) NOT NULL DEFAULT 'soporte' CHECK (rol IN ('admin', 'desarrollo', 'soporte')),
+  rol VARCHAR(20) NOT NULL DEFAULT 'soporte' CHECK (rol IN ('admin', 'desarrollo', 'soporte', 'cliente')),
+  cliente_id INTEGER,
   activo BOOLEAN DEFAULT TRUE,
   notif_email BOOLEAN DEFAULT TRUE,
   notif_pantalla BOOLEAN DEFAULT TRUE,
   created_at TIMESTAMP DEFAULT NOW()
 );
+
+ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS cliente_id INTEGER;
+ALTER TABLE usuarios DROP CONSTRAINT IF EXISTS usuarios_rol_check;
+ALTER TABLE usuarios ADD CONSTRAINT usuarios_rol_check CHECK (rol IN ('admin', 'desarrollo', 'soporte', 'cliente'));
 
 -- Clientes / empresas
 CREATE TABLE IF NOT EXISTS clientes (
@@ -41,6 +46,17 @@ CREATE TABLE IF NOT EXISTS clientes (
 
 ALTER TABLE clientes ADD COLUMN IF NOT EXISTS contacto_nombre VARCHAR(150);
 ALTER TABLE clientes ADD COLUMN IF NOT EXISTS notas TEXT;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'usuarios_cliente_id_fkey' AND conrelid = 'usuarios'::regclass
+  ) THEN
+    ALTER TABLE usuarios
+      ADD CONSTRAINT usuarios_cliente_id_fkey FOREIGN KEY (cliente_id) REFERENCES clientes(id);
+  END IF;
+END $$;
 
 -- Tickets
 CREATE TABLE IF NOT EXISTS tickets (
@@ -86,6 +102,7 @@ UPDATE tickets SET canal_origen = 'web' WHERE canal_origen IS NULL;
 CREATE INDEX IF NOT EXISTS idx_tickets_canal_origen ON tickets(canal_origen);
 CREATE INDEX IF NOT EXISTS idx_tickets_origen_email ON tickets(LOWER(origen_email));
 CREATE INDEX IF NOT EXISTS idx_tickets_referencia_externa ON tickets(referencia_externa);
+CREATE INDEX IF NOT EXISTS idx_usuarios_cliente_id ON usuarios(cliente_id);
 
 -- Auditoria de mensajes entrantes/salientes por canales externos
 CREATE TABLE IF NOT EXISTS ticket_comunicaciones (

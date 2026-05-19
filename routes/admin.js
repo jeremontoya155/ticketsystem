@@ -34,6 +34,7 @@ async function renderDashboard(req, res) {
     pool.query(`
       SELECT
         u.*,
+        c.nombre AS cliente_nombre,
         cm.email_notif,
         cm.notif_nuevo_ticket,
         cm.notif_cambio_estado,
@@ -42,6 +43,7 @@ async function renderDashboard(req, res) {
         (SELECT COUNT(*) FROM tickets WHERE ejecutor_id = u.id) AS total_tickets,
         (SELECT COUNT(*) FROM tickets WHERE ejecutor_id = u.id AND estado = 'Pendiente') AS pendientes
       FROM usuarios u
+      LEFT JOIN clientes c ON c.id = u.cliente_id
       LEFT JOIN config_mail cm ON cm.usuario_id = u.id
       ORDER BY u.created_at DESC
     `),
@@ -73,10 +75,13 @@ async function renderDashboard(req, res) {
 
 router.get('/', requireLogin, requireAdmin, renderDashboard);
 
-router.get('/usuarios/nuevo', requireLogin, requireAdmin, (_req, res) => {
+router.get('/usuarios/nuevo', requireLogin, requireAdmin, async (_req, res) => {
+  const clientesRes = await pool.query('SELECT id, nombre FROM clientes ORDER BY nombre');
+
   res.render('admin/usuario-form', {
     title: 'Nuevo Usuario',
     usuario: buildUserDefaults({}),
+    clientes: clientesRes.rows,
     accion: 'nuevo'
   });
 });
@@ -87,6 +92,7 @@ router.post('/usuarios/nuevo', requireLogin, requireAdmin, async (req, res) => {
     email,
     password,
     rol,
+    cliente_id,
     email_notif,
     notif_nuevo_ticket,
     notif_cambio_estado,
@@ -98,13 +104,17 @@ router.post('/usuarios/nuevo', requireLogin, requireAdmin, async (req, res) => {
 
   const client = await pool.connect();
   try {
+    if (rol === 'cliente' && !cliente_id) {
+      throw new Error('Debes asociar una empresa para usuarios cliente');
+    }
+
     await client.query('BEGIN');
     const hash = await bcrypt.hash(password, 10);
     const result = await client.query(`
-      INSERT INTO usuarios (nombre, email, password, rol, activo, notif_email, notif_pantalla)
-      VALUES ($1, $2, $3, $4, true, $5, $6)
+      INSERT INTO usuarios (nombre, email, password, rol, cliente_id, activo, notif_email, notif_pantalla)
+      VALUES ($1, $2, $3, $4, $5, true, $6, $7)
       RETURNING id
-    `, [nombre, email, hash, rol, asBool(notif_email), asBool(notif_pantalla)]);
+    `, [nombre, email, hash, rol, rol === 'cliente' ? asNullableInt(cliente_id) : null, asBool(notif_email), asBool(notif_pantalla)]);
 
     await client.query(`
       INSERT INTO config_mail (
@@ -132,7 +142,8 @@ router.post('/usuarios/nuevo', requireLogin, requireAdmin, async (req, res) => {
 });
 
 router.get('/usuarios/:id/editar', requireLogin, requireAdmin, async (req, res) => {
-  const result = await pool.query(`
+  const [result, clientesRes] = await Promise.all([
+    pool.query(`
     SELECT
       u.*,
       cm.email_notif,
@@ -143,7 +154,9 @@ router.get('/usuarios/:id/editar', requireLogin, requireAdmin, async (req, res) 
     FROM usuarios u
     LEFT JOIN config_mail cm ON cm.usuario_id = u.id
     WHERE u.id = $1
-  `, [req.params.id]);
+    `, [req.params.id]),
+    pool.query('SELECT id, nombre FROM clientes ORDER BY nombre')
+  ]);
 
   if (!result.rows[0]) {
     req.flash('error', 'Usuario no encontrado');
@@ -153,6 +166,7 @@ router.get('/usuarios/:id/editar', requireLogin, requireAdmin, async (req, res) 
   res.render('admin/usuario-form', {
     title: 'Editar Usuario',
     usuario: buildUserDefaults(result.rows[0]),
+    clientes: clientesRes.rows,
     accion: 'editar'
   });
 });
@@ -163,6 +177,7 @@ router.post('/usuarios/:id/editar', requireLogin, requireAdmin, async (req, res)
     email,
     password,
     rol,
+    cliente_id,
     activo,
     email_notif,
     notif_nuevo_ticket,
@@ -175,20 +190,24 @@ router.post('/usuarios/:id/editar', requireLogin, requireAdmin, async (req, res)
 
   const client = await pool.connect();
   try {
+    if (rol === 'cliente' && !cliente_id) {
+      throw new Error('Debes asociar una empresa para usuarios cliente');
+    }
+
     await client.query('BEGIN');
 
-    const values = [nombre, email, rol, asBool(activo), asBool(notif_email), asBool(notif_pantalla), req.params.id];
+    const values = [nombre, email, rol, rol === 'cliente' ? asNullableInt(cliente_id) : null, asBool(activo), asBool(notif_email), asBool(notif_pantalla), req.params.id];
     let updateSql = `
       UPDATE usuarios
-      SET nombre = $1, email = $2, rol = $3, activo = $4, notif_email = $5, notif_pantalla = $6
+      SET nombre = $1, email = $2, rol = $3, cliente_id = $4, activo = $5, notif_email = $6, notif_pantalla = $7
     `;
 
     if (password) {
       const hash = await bcrypt.hash(password, 10);
-      values.splice(6, 0, hash);
-      updateSql += ', password = $7 WHERE id = $8';
+      values.splice(7, 0, hash);
+      updateSql += ', password = $8 WHERE id = $9';
     } else {
-      updateSql += ' WHERE id = $7';
+      updateSql += ' WHERE id = $8';
     }
 
     await client.query(updateSql, values);
@@ -219,6 +238,7 @@ router.post('/usuarios/:id/editar', requireLogin, requireAdmin, async (req, res)
       req.session.user.nombre = nombre;
       req.session.user.email = email;
       req.session.user.rol = rol;
+      req.session.user.cliente_id = rol === 'cliente' ? asNullableInt(cliente_id) : null;
     }
 
     req.flash('success', 'Usuario actualizado correctamente');
