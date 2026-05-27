@@ -59,7 +59,14 @@ async function getDefaultAssignees(client) {
     SELECT id
     FROM usuarios
     WHERE activo = true
-    ORDER BY CASE rol WHEN 'soporte' THEN 1 WHEN 'admin' THEN 2 ELSE 3 END, id
+      AND rol IN ('tecnico_soporte', 'soporte', 'admin_soporte', 'admin', 'tecnico_desarrollo', 'desarrollo', 'admin_desarrollo')
+    ORDER BY CASE
+      WHEN rol IN ('tecnico_soporte', 'soporte') THEN 1
+      WHEN rol IN ('admin_soporte') THEN 2
+      WHEN rol IN ('admin') THEN 3
+      WHEN rol IN ('tecnico_desarrollo', 'desarrollo') THEN 4
+      ELSE 5
+    END, id
     LIMIT 1
   `);
 
@@ -90,8 +97,8 @@ async function createTicketFromExternal(input) {
       INSERT INTO tickets (
         nro_ticket, cliente_id, reclamo, observacion, asunto, prioridad, estado,
         canal_origen, origen_contacto, origen_email, origen_telefono, origen_mensaje_id,
-        referencia_externa, proceso, receptor_id, ejecutor_id, fecha_creacion, fecha_asignacion
-      ) VALUES ($1, $2, $3, $4, $5, $6, 'Pendiente', $7, $8, $9, $10, $11, $12, $13, $14, $14, NOW(), NOW())
+        referencia_externa, proceso, bolsa_asignada, receptor_id, ejecutor_id, fecha_creacion, fecha_asignacion
+      ) VALUES ($1, $2, $3, $4, $5, $6, 'Pendiente', $7, $8, $9, $10, $11, $12, $13, 'soporte', $14, $14, NOW(), NOW())
       RETURNING id, nro_ticket
     `, [
       nroTicket,
@@ -112,8 +119,8 @@ async function createTicketFromExternal(input) {
 
     const ticket = ticketRes.rows[0];
     await client.query(`
-      INSERT INTO comentarios (ticket_id, usuario_id, comentario, tipo)
-      VALUES ($1, $2, $3, 'comentario')
+      INSERT INTO comentarios (ticket_id, usuario_id, comentario, tipo, visible_cliente)
+      VALUES ($1, $2, $3, 'comentario', false)
     `, [
       ticket.id,
       defaultUserId,

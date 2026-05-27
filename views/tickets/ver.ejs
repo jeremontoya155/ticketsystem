@@ -58,6 +58,10 @@
             <span><%= ticket.proceso || '-' %></span>
           </div>
           <div class="info-item">
+            <label>Bolsa</label>
+            <span class="badge channel-badge"><%= ticket.bolsa_asignada === 'desarrollo' ? 'Desarrollo' : 'Soporte' %></span>
+          </div>
+          <div class="info-item">
             <label>Creado</label>
             <span><%= moment(ticket.fecha_creacion).format('DD/MM/YYYY HH:mm') %></span>
           </div>
@@ -230,12 +234,17 @@
             <input type="text" name="comentario" placeholder="Comentario del cambio (opcional)" class="form-input">
             <button type="submit" class="btn-primary"><i class="fas fa-check"></i> Guardar</button>
           </div>
+          <label class="toggle-label mt-1">
+            <input type="checkbox" name="visible_cliente">
+            <span class="toggle-switch"></span>
+            Mostrar este comentario al cliente
+          </label>
         </form>
       </div>
     </div>
     <% } %>
 
-    <% if (!isClientUser) { %>
+    <% if (canReassign) { %>
     <div class="card">
       <div class="card-header">
         <h3><i class="fas fa-users-cog"></i> Reasignar</h3>
@@ -244,10 +253,18 @@
         <form action="/tickets/<%= ticket.id %>/asignar" method="POST">
           <div class="form-row">
             <div class="form-group" style="flex:1">
+              <label>Bolsa</label>
+              <select name="bolsa_asignada" class="form-select">
+                <option value="soporte" <%= ticket.bolsa_asignada !== 'desarrollo' ? 'selected' : '' %>>Soporte</option>
+                <option value="desarrollo" <%= ticket.bolsa_asignada === 'desarrollo' ? 'selected' : '' %>>Desarrollo</option>
+              </select>
+              <small class="field-help">El encargado puede mover el caso entre bolsas y luego reasignar.</small>
+            </div>
+            <div class="form-group" style="flex:1">
               <label>Receptor</label>
               <select name="receptor_id" class="form-select">
                 <% usuarios.forEach(u => { %>
-                  <option value="<%= u.id %>" <%= ticket.receptor_id === u.id ? 'selected' : '' %>><%= u.nombre %></option>
+                  <option value="<%= u.id %>" <%= ticket.receptor_id === u.id ? 'selected' : '' %>><%= u.nombre %> (<%= u.tickets_misma_empresa || 0 %> tickets empresa)</option>
                 <% }) %>
               </select>
             </div>
@@ -255,7 +272,7 @@
               <label>Ejecutor (Desarrollo)</label>
               <select name="ejecutor_id" class="form-select">
                 <% usuarios.forEach(u => { %>
-                  <option value="<%= u.id %>" <%= ticket.ejecutor_id === u.id ? 'selected' : '' %>><%= u.nombre %></option>
+                  <option value="<%= u.id %>" <%= ticket.ejecutor_id === u.id ? 'selected' : '' %>><%= u.nombre %> (<%= u.tickets_misma_empresa || 0 %> tickets empresa)</option>
                 <% }) %>
               </select>
             </div>
@@ -307,6 +324,13 @@
           <textarea name="comentario" rows="3" placeholder="Agregar un comentario..." required class="form-textarea"></textarea>
           <input type="file" name="imagenes" accept="image/*" multiple class="form-input">
           <small class="field-help">Podes agregar imagenes para documentar avances o evidencias.</small>
+          <% if (!isClientUser) { %>
+          <label class="toggle-label mt-1">
+            <input type="checkbox" name="visible_cliente">
+            <span class="toggle-switch"></span>
+            Compartir comentario en trazabilidad del cliente
+          </label>
+          <% } %>
           <button type="submit" class="btn-primary"><i class="fas fa-paper-plane"></i> Comentar</button>
         </form>
       </div>

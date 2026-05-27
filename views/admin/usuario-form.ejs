@@ -28,9 +28,11 @@
       <div class="form-group">
         <label><i class="fas fa-shield-alt"></i> Rol</label>
         <select name="rol" class="form-select">
-          <option value="soporte" <%= usuario.rol === 'soporte' ? 'selected' : '' %>>Soporte</option>
-          <option value="desarrollo" <%= usuario.rol === 'desarrollo' ? 'selected' : '' %>>Desarrollo</option>
-          <option value="admin" <%= usuario.rol === 'admin' ? 'selected' : '' %>>Administrador</option>
+          <option value="tecnico_soporte" <%= ['tecnico_soporte','soporte'].includes(usuario.rol) ? 'selected' : '' %>>Tecnico de soporte</option>
+          <option value="tecnico_desarrollo" <%= ['tecnico_desarrollo','desarrollo'].includes(usuario.rol) ? 'selected' : '' %>>Tecnico de desarrollo</option>
+          <option value="admin_soporte" <%= usuario.rol === 'admin_soporte' ? 'selected' : '' %>>Admin de soporte</option>
+          <option value="admin_desarrollo" <%= usuario.rol === 'admin_desarrollo' ? 'selected' : '' %>>Admin de desarrollo</option>
+          <option value="admin" <%= usuario.rol === 'admin' ? 'selected' : '' %>>Admin general</option>
           <option value="cliente" <%= usuario.rol === 'cliente' ? 'selected' : '' %>>Cliente</option>
         </select>
       </div>

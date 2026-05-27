@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS usuarios (
   nombre VARCHAR(100) NOT NULL,
   email VARCHAR(150) UNIQUE NOT NULL,
   password VARCHAR(255) NOT NULL,
-  rol VARCHAR(20) NOT NULL DEFAULT 'soporte' CHECK (rol IN ('admin', 'desarrollo', 'soporte', 'cliente')),
+  rol VARCHAR(30) NOT NULL DEFAULT 'tecnico_soporte' CHECK (rol IN ('admin', 'admin_soporte', 'admin_desarrollo', 'tecnico_soporte', 'tecnico_desarrollo', 'soporte', 'desarrollo', 'cliente')),
   cliente_id INTEGER,
   activo BOOLEAN DEFAULT TRUE,
   notif_email BOOLEAN DEFAULT TRUE,
@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS usuarios (
 
 ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS cliente_id INTEGER;
 ALTER TABLE usuarios DROP CONSTRAINT IF EXISTS usuarios_rol_check;
-ALTER TABLE usuarios ADD CONSTRAINT usuarios_rol_check CHECK (rol IN ('admin', 'desarrollo', 'soporte', 'cliente'));
+ALTER TABLE usuarios ADD CONSTRAINT usuarios_rol_check CHECK (rol IN ('admin', 'admin_soporte', 'admin_desarrollo', 'tecnico_soporte', 'tecnico_desarrollo', 'soporte', 'desarrollo', 'cliente'));
 
 -- Clientes / empresas
 CREATE TABLE IF NOT EXISTS clientes (
@@ -77,6 +77,7 @@ CREATE TABLE IF NOT EXISTS tickets (
   origen_mensaje_id VARCHAR(200),
   referencia_externa VARCHAR(150),
   proceso VARCHAR(60),
+  bolsa_asignada VARCHAR(20) DEFAULT 'soporte' CHECK (bolsa_asignada IN ('soporte', 'desarrollo')),
   receptor_id INTEGER REFERENCES usuarios(id),
   ejecutor_id INTEGER REFERENCES usuarios(id),
   fecha_creacion TIMESTAMP DEFAULT NOW(),
@@ -97,7 +98,12 @@ ALTER TABLE tickets ADD COLUMN IF NOT EXISTS origen_telefono VARCHAR(60);
 ALTER TABLE tickets ADD COLUMN IF NOT EXISTS origen_mensaje_id VARCHAR(200);
 ALTER TABLE tickets ADD COLUMN IF NOT EXISTS referencia_externa VARCHAR(150);
 ALTER TABLE tickets ADD COLUMN IF NOT EXISTS proceso VARCHAR(60);
+ALTER TABLE tickets ADD COLUMN IF NOT EXISTS bolsa_asignada VARCHAR(20) DEFAULT 'soporte';
 UPDATE tickets SET canal_origen = 'web' WHERE canal_origen IS NULL;
+UPDATE tickets SET bolsa_asignada = 'soporte' WHERE bolsa_asignada IS NULL;
+
+ALTER TABLE tickets DROP CONSTRAINT IF EXISTS tickets_bolsa_asignada_check;
+ALTER TABLE tickets ADD CONSTRAINT tickets_bolsa_asignada_check CHECK (bolsa_asignada IN ('soporte', 'desarrollo'));
 
 CREATE INDEX IF NOT EXISTS idx_tickets_canal_origen ON tickets(canal_origen);
 CREATE INDEX IF NOT EXISTS idx_tickets_origen_email ON tickets(LOWER(origen_email));
@@ -130,8 +136,11 @@ CREATE TABLE IF NOT EXISTS comentarios (
   usuario_id INTEGER REFERENCES usuarios(id),
   comentario TEXT NOT NULL,
   tipo VARCHAR(20) DEFAULT 'comentario' CHECK (tipo IN ('comentario','cambio_estado','asignacion')),
+  visible_cliente BOOLEAN DEFAULT TRUE,
   created_at TIMESTAMP DEFAULT NOW()
 );
+
+ALTER TABLE comentarios ADD COLUMN IF NOT EXISTS visible_cliente BOOLEAN DEFAULT TRUE;
 
 -- Adjuntos de tickets y comentarios
 CREATE TABLE IF NOT EXISTS ticket_adjuntos (
@@ -176,8 +185,8 @@ CREATE TABLE IF NOT EXISTS config_mail (
 -- Usuarios iniciales (password: password)
 INSERT INTO usuarios (nombre, email, password, rol) VALUES
 ('Administrador', 'admin@empresa.com', '$2a$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'admin'),
-('Jeremias Montoya', 'jeremias@empresa.com', '$2a$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'desarrollo'),
-('Soporte General', 'soporte@empresa.com', '$2a$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'soporte')
+('Jeremias Montoya', 'jeremias@empresa.com', '$2a$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'tecnico_desarrollo'),
+('Soporte General', 'soporte@empresa.com', '$2a$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'tecnico_soporte')
 ON CONFLICT (email) DO NOTHING;
 
 INSERT INTO clientes (nombre, contacto_nombre, email, telefono, notas)

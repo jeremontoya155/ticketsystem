@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
 const { pool } = require('../config/db');
-const { requireLogin } = require('../middleware/auth');
+const { requireLogin, normalizeRole } = require('../middleware/auth');
 
 router.get('/', (req, res) => {
   if (req.session.user) return res.redirect('/tickets');
@@ -23,7 +23,13 @@ router.post('/login', async (req, res) => {
       req.flash('error', 'Email o contraseña incorrectos');
       return res.redirect('/login');
     }
-    req.session.user = { id: user.id, nombre: user.nombre, email: user.email, rol: user.rol, cliente_id: user.cliente_id };
+    req.session.user = {
+      id: user.id,
+      nombre: user.nombre,
+      email: user.email,
+      rol: normalizeRole(user.rol) || user.rol,
+      cliente_id: user.cliente_id
+    };
     req.flash('success', `Bienvenido, ${user.nombre}!`);
     res.redirect('/tickets');
   } catch (err) {

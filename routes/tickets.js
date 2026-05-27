@@ -3,7 +3,13 @@ const express = require('express');
 const router = express.Router();
 const moment = require('moment');
 const { pool } = require('../config/db');
-const { requireLogin } = require('../middleware/auth');
+const {
+  requireLogin,
+  isClient,
+  canAccessDevelopment,
+  canManageAssignments,
+  normalizeRole
+} = require('../middleware/auth');
 const { uploadTicketImages } = require('../config/uploads');
 const { enviarReporteTicket, enviarConfirmacionCreadorTicket, notificarTicket } = require('../config/mailer');
 const { buildDevAssistant } = require('../services/dev-radar');
@@ -83,8 +89,15 @@ async function findDefaultInternalUser(client) {
   const result = await client.query(`
     SELECT id
     FROM usuarios
-    WHERE activo = true AND rol IN ('soporte', 'admin', 'desarrollo')
-    ORDER BY CASE rol WHEN 'soporte' THEN 1 WHEN 'admin' THEN 2 ELSE 3 END, id
+    WHERE activo = true
+      AND rol IN ('tecnico_soporte', 'soporte', 'admin_soporte', 'admin', 'tecnico_desarrollo', 'desarrollo', 'admin_desarrollo')
+    ORDER BY CASE
+      WHEN rol IN ('tecnico_soporte', 'soporte') THEN 1
+      WHEN rol IN ('admin_soporte') THEN 2
+      WHEN rol IN ('admin') THEN 3
+      WHEN rol IN ('tecnico_desarrollo', 'desarrollo') THEN 4
+      ELSE 5
+    END, id
     LIMIT 1
   `);
 
@@ -104,7 +117,7 @@ router.get('/', requireLogin, async (req, res) => {
   let pIdx = 1;
   let statsIdx = 1;
 
-  if (user.rol === 'cliente') {
+  if (isClient(user)) {
     if (user.cliente_id) {
       whereClause += ` AND t.cliente_id = $${pIdx}`;
       params.push(user.cliente_id);
@@ -119,7 +132,13 @@ router.get('/', requireLogin, async (req, res) => {
     }
   }
 
-  if (user.rol === 'desarrollo') {
+  if (normalizeRole(user.rol) === 'tecnico_desarrollo') {
+    whereClause += ` AND (t.ejecutor_id = $${pIdx} OR t.receptor_id = $${pIdx})`;
+    params.push(user.id);
+    pIdx++;
+  }
+
+  if (normalizeRole(user.rol) === 'tecnico_soporte') {
     whereClause += ` AND (t.ejecutor_id = $${pIdx} OR t.receptor_id = $${pIdx})`;
     params.push(user.id);
     pIdx++;
@@ -228,13 +247,14 @@ router.get('/', requireLogin, async (req, res) => {
 router.get('/nuevo', requireLogin, async (req, res) => {
   const user = req.session.user;
   const [clientesRes, usuariosRes] = await Promise.all([
-    user.rol === 'cliente'
+    isClient(user)
       ? pool.query('SELECT * FROM clientes WHERE id = $1', [user.cliente_id || 0])
       : pool.query('SELECT * FROM clientes ORDER BY nombre'),
     pool.query(`
       SELECT id, nombre, rol
       FROM usuarios
-      WHERE activo = true AND rol <> 'cliente'
+      WHERE activo = true
+        AND rol IN ('admin', 'admin_soporte', 'admin_desarrollo', 'tecnico_soporte', 'soporte', 'tecnico_desarrollo', 'desarrollo')
       ORDER BY nombre
     `)
   ]);
@@ -271,7 +291,7 @@ router.post('/nuevo', requireLogin, withImageUpload('imagenes', '/tickets/nuevo'
   try {
     await client.query('BEGIN');
 
-    const isClientUser = user.rol === 'cliente';
+    const isClientUser = isClient(user);
     const finalClienteId = isClientUser ? user.cliente_id : cliente_id;
     if (!finalClienteId) {
       throw new Error('No hay empresa asociada para crear el ticket');
@@ -281,6 +301,7 @@ router.post('/nuevo', requireLogin, withImageUpload('imagenes', '/tickets/nuevo'
     const finalReceptorId = isClientUser ? defaultInternalUserId : (receptor_id || user.id);
     const finalEjecutorId = isClientUser ? defaultInternalUserId : (ejecutor_id || user.id);
     const finalEstado = isClientUser ? 'Pendiente' : (estado || 'Pendiente');
+    const finalBolsa = isClientUser ? 'soporte' : (req.body.bolsa_asignada || 'soporte');
     const finalPrioridad = prioridad || 'Media';
     const finalCanalOrigen = isClientUser ? 'web' : (canal_origen || 'web');
     const finalOrigenEmail = origen_email || (isClientUser ? user.email : null);
@@ -291,9 +312,9 @@ router.post('/nuevo', requireLogin, withImageUpload('imagenes', '/tickets/nuevo'
     const result = await client.query(`
       INSERT INTO tickets (
         nro_ticket, cliente_id, reclamo, observacion, asunto, prioridad, estado,
-        canal_origen, origen_email, origen_telefono, referencia_externa, proceso,
+        canal_origen, origen_email, origen_telefono, referencia_externa, proceso, bolsa_asignada,
         receptor_id, ejecutor_id, fecha_creacion, fecha_asignacion
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, NOW(), NOW())
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW(), NOW())
       RETURNING id
     `, [
       nroTicket,
@@ -308,6 +329,7 @@ router.post('/nuevo', requireLogin, withImageUpload('imagenes', '/tickets/nuevo'
       origen_telefono || null,
       referencia_externa || null,
       proceso || null,
+      finalBolsa,
       finalReceptorId,
       finalEjecutorId
     ]);
@@ -318,9 +340,9 @@ router.post('/nuevo', requireLogin, withImageUpload('imagenes', '/tickets/nuevo'
     await refreshAttachmentCount(client, ticketId);
 
     await client.query(`
-      INSERT INTO comentarios (ticket_id, usuario_id, comentario, tipo)
-      VALUES ($1, $2, $3, 'cambio_estado')
-    `, [ticketId, user.id, `Ticket creado con estado: ${finalEstado}`]);
+      INSERT INTO comentarios (ticket_id, usuario_id, comentario, tipo, visible_cliente)
+      VALUES ($1, $2, $3, 'cambio_estado', $4)
+    `, [ticketId, user.id, `Ticket creado con estado: ${finalEstado}`, isClientUser]);
 
     await client.query('COMMIT');
 
@@ -367,7 +389,7 @@ router.post('/nuevo', requireLogin, withImageUpload('imagenes', '/tickets/nuevo'
 });
 
 router.get('/mail-intake', requireLogin, (_req, res) => {
-  if (_req.session.user.rol === 'cliente') {
+  if (isClient(_req.session.user)) {
     _req.flash('error', 'Acceso restringido');
     return res.redirect('/tickets');
   }
@@ -379,10 +401,10 @@ router.get('/mail-intake', requireLogin, (_req, res) => {
 
 router.get('/:id', requireLogin, async (req, res) => {
   try {
-    const ticketWhere = req.session.user.rol === 'cliente'
+    const ticketWhere = isClient(req.session.user)
       ? 't.id = $1 AND t.cliente_id = $2'
       : 't.id = $1';
-    const ticketParams = req.session.user.rol === 'cliente'
+    const ticketParams = isClient(req.session.user)
       ? [req.params.id, req.session.user.cliente_id || 0]
       : [req.params.id];
 
@@ -408,14 +430,26 @@ router.get('/:id', requireLogin, async (req, res) => {
         FROM comentarios cm
         LEFT JOIN usuarios u ON cm.usuario_id = u.id
         WHERE cm.ticket_id = $1
+          AND ($2::boolean = false OR cm.visible_cliente = true)
         ORDER BY cm.created_at ASC
-      `, [req.params.id]),
+      `, [req.params.id, isClient(req.session.user)]),
       pool.query(`
-        SELECT id, nombre, rol
+        SELECT
+          u.id,
+          u.nombre,
+          u.rol,
+          (
+            SELECT COUNT(*)
+            FROM tickets t2
+            WHERE t2.cliente_id = (SELECT cliente_id FROM tickets WHERE id = $1)
+              AND (t2.receptor_id = u.id OR t2.ejecutor_id = u.id)
+              AND t2.estado IN ('Pendiente', 'En Proceso')
+          ) AS tickets_misma_empresa
         FROM usuarios
-        WHERE activo = true AND rol <> 'cliente'
-        ORDER BY nombre
-      `),
+        WHERE u.activo = true
+          AND u.rol IN ('admin', 'admin_soporte', 'admin_desarrollo', 'tecnico_soporte', 'soporte', 'tecnico_desarrollo', 'desarrollo')
+        ORDER BY tickets_misma_empresa DESC, u.nombre
+      `, [req.params.id]),
       pool.query('SELECT COUNT(*) AS unread FROM notificaciones WHERE usuario_id = $1 AND leida = false', [req.session.user.id]),
       pool.query(`
         SELECT *
@@ -433,7 +467,7 @@ router.get('/:id', requireLogin, async (req, res) => {
     const attachments = adjuntosRes.rows;
     const attachmentsByComment = groupAttachmentsByComment(attachments);
     const ticketAttachments = attachments.filter((attachment) => !attachment.comentario_id);
-    const devAssistant = ['admin', 'desarrollo'].includes(req.session.user?.rol)
+    const devAssistant = canAccessDevelopment(req.session.user)
       ? await buildDevAssistant(ticketRes.rows[0])
       : null;
 
@@ -445,6 +479,7 @@ router.get('/:id', requireLogin, async (req, res) => {
       attachments: ticketAttachments,
       attachmentsByComment,
       devAssistant,
+      canReassign: canManageAssignments(req.session.user),
       unreadCount: parseInt(notifRes.rows[0].unread, 10),
       defaultReportMessage: [
         `Te compartimos el estado del ticket #${ticketRes.rows[0].nro_ticket}.`,
@@ -465,11 +500,11 @@ router.get('/:id', requireLogin, async (req, res) => {
 });
 
 router.post('/:id/estado', requireLogin, async (req, res) => {
-  const { estado, comentario } = req.body;
+  const { estado, comentario, visible_cliente } = req.body;
   const user = req.session.user;
 
   try {
-    if (user.rol === 'cliente') {
+    if (isClient(user)) {
       req.flash('error', 'Los usuarios cliente no pueden cambiar el estado');
       return res.redirect(`/tickets/${req.params.id}`);
     }
@@ -494,9 +529,9 @@ router.post('/:id/estado', requireLogin, async (req, res) => {
 
     const msg = comentario || `Estado cambiado de "${old.estado}" a "${estado}"`;
     await pool.query(`
-      INSERT INTO comentarios (ticket_id, usuario_id, comentario, tipo)
-      VALUES ($1, $2, $3, 'cambio_estado')
-    `, [req.params.id, user.id, msg]);
+      INSERT INTO comentarios (ticket_id, usuario_id, comentario, tipo, visible_cliente)
+      VALUES ($1, $2, $3, 'cambio_estado', $4)
+    `, [req.params.id, user.id, msg, visible_cliente === 'on']);
 
     await notificarTicket({
       ticketId: parseInt(req.params.id, 10),
@@ -515,17 +550,17 @@ router.post('/:id/estado', requireLogin, async (req, res) => {
 });
 
 router.post('/:id/comentar', requireLogin, withImageUpload('imagenes', (req) => `/tickets/${req.params.id}`), async (req, res) => {
-  const { comentario } = req.body;
+  const { comentario, visible_cliente } = req.body;
   const user = req.session.user;
   const client = await pool.connect();
 
   try {
     await client.query('BEGIN');
 
-    const ticketWhere = user.rol === 'cliente'
+    const ticketWhere = isClient(user)
       ? 'id = $1 AND cliente_id = $2'
       : 'id = $1';
-    const ticketParams = user.rol === 'cliente'
+    const ticketParams = isClient(user)
       ? [req.params.id, user.cliente_id || 0]
       : [req.params.id];
     const tkRes = await client.query(`SELECT nro_ticket FROM tickets WHERE ${ticketWhere}`, ticketParams);
@@ -534,10 +569,10 @@ router.post('/:id/comentar', requireLogin, withImageUpload('imagenes', (req) => 
     }
 
     const commentRes = await client.query(`
-      INSERT INTO comentarios (ticket_id, usuario_id, comentario, tipo)
-      VALUES ($1, $2, $3, 'comentario')
+      INSERT INTO comentarios (ticket_id, usuario_id, comentario, tipo, visible_cliente)
+      VALUES ($1, $2, $3, 'comentario', $4)
       RETURNING id
-    `, [req.params.id, user.id, comentario]);
+    `, [req.params.id, user.id, comentario, isClient(user) ? true : visible_cliente === 'on']);
 
     const attachments = buildAttachmentRows(req.params.id, req.files, commentRes.rows[0].id);
     await saveAttachments(client, attachments);
@@ -565,26 +600,31 @@ router.post('/:id/comentar', requireLogin, withImageUpload('imagenes', (req) => 
 });
 
 router.post('/:id/asignar', requireLogin, async (req, res) => {
-  const { ejecutor_id, receptor_id } = req.body;
+  const { ejecutor_id, receptor_id, bolsa_asignada } = req.body;
   const user = req.session.user;
 
   try {
-    if (user.rol === 'cliente') {
+    if (isClient(user)) {
       req.flash('error', 'Los usuarios cliente no pueden reasignar tickets');
+      return res.redirect(`/tickets/${req.params.id}`);
+    }
+
+    if (!canManageAssignments(user)) {
+      req.flash('error', 'Solo los administradores de soporte o desarrollo pueden reasignar tickets');
       return res.redirect(`/tickets/${req.params.id}`);
     }
 
     await pool.query(`
       UPDATE tickets
-      SET ejecutor_id = $1, receptor_id = $2, updated_at = NOW()
-      WHERE id = $3
-    `, [ejecutor_id, receptor_id, req.params.id]);
+      SET ejecutor_id = $1, receptor_id = $2, bolsa_asignada = $3, updated_at = NOW()
+      WHERE id = $4
+    `, [ejecutor_id, receptor_id, bolsa_asignada || 'soporte', req.params.id]);
 
     const tkRes = await pool.query('SELECT nro_ticket FROM tickets WHERE id = $1', [req.params.id]);
     await pool.query(`
-      INSERT INTO comentarios (ticket_id, usuario_id, comentario, tipo)
-      VALUES ($1, $2, $3, 'asignacion')
-    `, [req.params.id, user.id, 'Ticket reasignado']);
+      INSERT INTO comentarios (ticket_id, usuario_id, comentario, tipo, visible_cliente)
+      VALUES ($1, $2, $3, 'asignacion', false)
+    `, [req.params.id, user.id, `Ticket reasignado. Bolsa: ${bolsa_asignada || 'soporte'}`]);
 
     await notificarTicket({
       ticketId: parseInt(req.params.id, 10),
@@ -607,7 +647,7 @@ router.post('/:id/enviar-reporte', requireLogin, async (req, res) => {
   const user = req.session.user;
 
   try {
-    if (user.rol === 'cliente') {
+    if (isClient(user)) {
       req.flash('error', 'Los usuarios cliente no pueden enviar reportes internos');
       return res.redirect(`/tickets/${req.params.id}`);
     }

@@ -6,6 +6,8 @@
   "scripts": {
     "db:init": "node scripts/init-db.js",
     "db:seed": "node seeds/seed.js",
+    "db:seed:e2e": "node seeds/seed-e2e.js",
+    "client:user": "node scripts/create-client-user.js",
     "setup": "npm run db:init && npm run db:seed",
     "start": "node app.js",
     "dev": "nodemon app.js"

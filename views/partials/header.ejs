@@ -9,6 +9,7 @@
 </head>
 <body>
 <% if (user) { %>
+<% const canSeeAdmin = ['admin', 'admin_soporte', 'admin_desarrollo'].includes(user.rol); %>
 <nav class="navbar">
   <div class="nav-brand">
     <i class="fas fa-ticket-alt"></i>
@@ -26,7 +27,7 @@
       <i class="fas fa-envelope-open-text"></i> <span>Mail</span>
     </a>
     <% } %>
-    <% if (user.rol === 'admin') { %>
+    <% if (canSeeAdmin) { %>
     <a href="/admin" class="nav-link">
       <i class="fas fa-cog"></i> <span>Admin</span>
     </a>

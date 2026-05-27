@@ -96,6 +96,19 @@
     <% if (!isClientUser) { %>
     <div class="form-row">
       <div class="form-group">
+        <label><i class="fas fa-layer-group"></i> Bolsa inicial</label>
+        <select name="bolsa_asignada" class="form-select">
+          <option value="soporte" selected>Soporte</option>
+          <option value="desarrollo">Desarrollo</option>
+        </select>
+      </div>
+      <div class="form-group"></div>
+    </div>
+    <% } %>
+
+    <% if (!isClientUser) { %>
+    <div class="form-row">
+      <div class="form-group">
         <label><i class="fas fa-user-check"></i> Receptor</label>
         <select name="receptor_id" class="form-select">
           <% usuarios.forEach(u => { %>

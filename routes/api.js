@@ -1,11 +1,11 @@
 const express = require('express');
 const router = express.Router();
 const { pool } = require('../config/db');
-const { requireLogin, requireDesarrollo } = require('../middleware/auth');
+const { requireLogin, requireDesarrollo, isClient } = require('../middleware/auth');
 const { fetchTicketContext } = require('../services/dev-radar');
 const { generateGroqSolution, getGroqConfig } = require('../services/groq-beta');
 const { fetchRecentMailPreviews, importMailAsTicket } = require('../services/mail-intake');
-const { createTicketFromExternal } = require('../services/ticket-ingestion');
+const { createTicketFromExternal, findClientByOrigin } = require('../services/ticket-ingestion');
 
 function buildSearchTokens(value) {
   const stopWords = new Set(['para', 'pero', 'como', 'este', 'esta', 'esto', 'con', 'sin', 'por', 'del', 'las', 'los', 'una', 'unos', 'unas', 'que']);
@@ -20,7 +20,7 @@ function buildSearchTokens(value) {
 }
 
 function requireWebhookToken(req, res, next) {
-  const expectedToken = process.env.WHATSAPP_WEBHOOK_TOKEN;
+  const expectedToken = process.env.WHATSAPP_AUTH_TOKEN || process.env.WHATSAPP_WEBHOOK_TOKEN;
   if (!expectedToken) {
     return next();
   }
@@ -35,6 +35,62 @@ function requireWebhookToken(req, res, next) {
 
   next();
 }
+
+async function fetchSimilarOpenTickets(clienteId, texto, limit = 5) {
+  const tokens = buildSearchTokens(texto);
+  if (!clienteId || tokens.length === 0) {
+    return [];
+  }
+
+  const params = [clienteId];
+  const tokenFilters = tokens.map((token) => {
+    params.push(`%${token}%`);
+    const idx = params.length;
+    return `(t.asunto ILIKE $${idx} OR t.reclamo ILIKE $${idx})`;
+  });
+
+  params.push(Math.max(1, Math.min(parseInt(limit, 10) || 5, 20)));
+  const result = await pool.query(`
+    SELECT id, nro_ticket, asunto, estado, prioridad, fecha_creacion
+    FROM tickets t
+    WHERE t.cliente_id = $1
+      AND t.estado IN ('Pendiente', 'En Proceso')
+      AND (${tokenFilters.join(' OR ')})
+    ORDER BY
+      CASE t.estado WHEN 'En Proceso' THEN 1 ELSE 2 END,
+      t.fecha_creacion DESC
+    LIMIT $${params.length}
+  `, params);
+
+  return result.rows;
+}
+
+router.post('/auth/whatsapp', (req, res) => {
+  const expectedUser = process.env.WHATSAPP_AUTH_USER;
+  const expectedPass = process.env.WHATSAPP_AUTH_PASS;
+  const configuredToken = process.env.WHATSAPP_AUTH_TOKEN || process.env.WHATSAPP_WEBHOOK_TOKEN || null;
+  const body = req.body || {};
+
+  if (!expectedUser || !expectedPass) {
+    return res.status(503).json({
+      ok: false,
+      error: 'WHATSAPP_AUTH_USER y WHATSAPP_AUTH_PASS no estan configurados en .env'
+    });
+  }
+
+  if (body.user !== expectedUser || body.password !== expectedPass) {
+    return res.status(401).json({ ok: false, error: 'Credenciales invalidas' });
+  }
+
+  return res.json({
+    ok: true,
+    auth: 'ok',
+    token: configuredToken,
+    note: configuredToken
+      ? 'Usa este token en Authorization: Bearer <token> para /api/webhooks/whatsapp'
+      : 'No hay token de webhook configurado. El webhook acepta requests autenticados por red interna.'
+  });
+});
 
 router.get('/notificaciones', requireLogin, async (req, res) => {
   const result = await pool.query(`
@@ -92,34 +148,10 @@ router.get('/stats', requireLogin, async (_req, res) => {
 router.get('/tickets/similares', requireLogin, async (req, res) => {
   try {
     const user = req.session.user;
-    const clienteId = user.rol === 'cliente' ? user.cliente_id : req.query.cliente_id;
+    const clienteId = isClient(user) ? user.cliente_id : req.query.cliente_id;
     const texto = `${req.query.asunto || ''} ${req.query.reclamo || ''}`;
-    const tokens = buildSearchTokens(texto);
-
-    if (!clienteId || tokens.length === 0) {
-      return res.json({ ok: true, tickets: [] });
-    }
-
-    const params = [clienteId];
-    const tokenFilters = tokens.map((token) => {
-      params.push(`%${token}%`);
-      const idx = params.length;
-      return `(t.asunto ILIKE $${idx} OR t.reclamo ILIKE $${idx})`;
-    });
-
-    const result = await pool.query(`
-      SELECT id, nro_ticket, asunto, estado, prioridad, fecha_creacion
-      FROM tickets t
-      WHERE t.cliente_id = $1
-        AND t.estado IN ('Pendiente', 'En Proceso')
-        AND (${tokenFilters.join(' OR ')})
-      ORDER BY
-        CASE t.estado WHEN 'En Proceso' THEN 1 ELSE 2 END,
-        t.fecha_creacion DESC
-      LIMIT 5
-    `, params);
-
-    res.json({ ok: true, tickets: result.rows });
+    const tickets = await fetchSimilarOpenTickets(clienteId, texto, req.query.limit || 5);
+    res.json({ ok: true, tickets });
   } catch (error) {
     console.error('Similar tickets error:', error.message);
     res.status(500).json({ ok: false, error: 'No se pudieron consultar tickets similares' });
@@ -128,7 +160,7 @@ router.get('/tickets/similares', requireLogin, async (req, res) => {
 
 router.get('/mail/intake/preview', requireLogin, async (req, res) => {
   try {
-    if (req.session.user.rol === 'cliente') {
+    if (isClient(req.session.user)) {
       return res.status(403).json({ ok: false, error: 'Acceso restringido' });
     }
 
@@ -143,7 +175,7 @@ router.get('/mail/intake/preview', requireLogin, async (req, res) => {
 
 router.post('/mail/intake/import', requireLogin, async (req, res) => {
   try {
-    if (req.session.user.rol === 'cliente') {
+    if (isClient(req.session.user)) {
       return res.status(403).json({ ok: false, error: 'Acceso restringido' });
     }
 
@@ -172,6 +204,30 @@ router.post('/webhooks/whatsapp', requireWebhookToken, async (req, res) => {
       return res.status(400).json({ ok: false, error: 'Faltan phone/from y text/message/body' });
     }
 
+    const asunto = payload.subject || `WhatsApp de ${name || phone}`;
+    const matchedClient = await findClientByOrigin({
+      phone,
+      email: payload.email || payload.origen_email,
+      codigoExterno: payload.clientCode || payload.codigo_cliente
+    });
+    const similares = await fetchSimilarOpenTickets(matchedClient?.id, `${asunto} ${text}`, payload.similarLimit || 5);
+    const dryRun = payload.dryRun === true || payload.dry_run === true || payload.onlyEvaluate === true;
+
+    if (dryRun) {
+      return res.json({
+        ok: true,
+        mode: 'evaluation',
+        shouldCreateTicket: !similares.length,
+        similarTickets: similares,
+        clienteDetectado: matchedClient ? {
+          id: matchedClient.id,
+          nombre: matchedClient.nombre,
+          email: matchedClient.email,
+          telefono: matchedClient.telefono
+        } : null
+      });
+    }
+
     const ticket = await createTicketFromExternal({
       canal: 'whatsapp',
       proveedor: payload.provider || 'bot-externo',
@@ -179,7 +235,7 @@ router.post('/webhooks/whatsapp', requireWebhookToken, async (req, res) => {
       origenTelefono: phone,
       origenContacto: name,
       remitente: phone,
-      asunto: payload.subject || `WhatsApp de ${name || phone}`,
+      asunto,
       reclamo: text,
       cuerpo: text,
       referenciaExterna: payload.reference || payload.referencia || null,
@@ -190,6 +246,7 @@ router.post('/webhooks/whatsapp', requireWebhookToken, async (req, res) => {
     res.status(201).json({
       ok: true,
       ticket,
+      similarTickets: similares,
       reply: `Recibimos tu reclamo. Ticket #${ticket.nro_ticket}.`
     });
   } catch (error) {

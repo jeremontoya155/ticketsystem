@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
 const { pool } = require('../config/db');
-const { requireLogin, requireAdmin } = require('../middleware/auth');
+const { requireLogin, requireAdmin, normalizeRole } = require('../middleware/auth');
 
 function asBool(value) {
   return value === 'on' || value === 'true' || value === true;
@@ -104,7 +104,9 @@ router.post('/usuarios/nuevo', requireLogin, requireAdmin, async (req, res) => {
 
   const client = await pool.connect();
   try {
-    if (rol === 'cliente' && !cliente_id) {
+    const finalRol = normalizeRole(rol) || rol;
+
+    if (finalRol === 'cliente' && !cliente_id) {
       throw new Error('Debes asociar una empresa para usuarios cliente');
     }
 
@@ -114,7 +116,7 @@ router.post('/usuarios/nuevo', requireLogin, requireAdmin, async (req, res) => {
       INSERT INTO usuarios (nombre, email, password, rol, cliente_id, activo, notif_email, notif_pantalla)
       VALUES ($1, $2, $3, $4, $5, true, $6, $7)
       RETURNING id
-    `, [nombre, email, hash, rol, rol === 'cliente' ? asNullableInt(cliente_id) : null, asBool(notif_email), asBool(notif_pantalla)]);
+    `, [nombre, email, hash, finalRol, finalRol === 'cliente' ? asNullableInt(cliente_id) : null, asBool(notif_email), asBool(notif_pantalla)]);
 
     await client.query(`
       INSERT INTO config_mail (
@@ -190,13 +192,15 @@ router.post('/usuarios/:id/editar', requireLogin, requireAdmin, async (req, res)
 
   const client = await pool.connect();
   try {
-    if (rol === 'cliente' && !cliente_id) {
+    const finalRol = normalizeRole(rol) || rol;
+
+    if (finalRol === 'cliente' && !cliente_id) {
       throw new Error('Debes asociar una empresa para usuarios cliente');
     }
 
     await client.query('BEGIN');
 
-    const values = [nombre, email, rol, rol === 'cliente' ? asNullableInt(cliente_id) : null, asBool(activo), asBool(notif_email), asBool(notif_pantalla), req.params.id];
+    const values = [nombre, email, finalRol, finalRol === 'cliente' ? asNullableInt(cliente_id) : null, asBool(activo), asBool(notif_email), asBool(notif_pantalla), req.params.id];
     let updateSql = `
       UPDATE usuarios
       SET nombre = $1, email = $2, rol = $3, cliente_id = $4, activo = $5, notif_email = $6, notif_pantalla = $7
@@ -237,8 +241,8 @@ router.post('/usuarios/:id/editar', requireLogin, requireAdmin, async (req, res)
     if (req.session.user && req.session.user.id === parseInt(req.params.id, 10)) {
       req.session.user.nombre = nombre;
       req.session.user.email = email;
-      req.session.user.rol = rol;
-      req.session.user.cliente_id = rol === 'cliente' ? asNullableInt(cliente_id) : null;
+      req.session.user.rol = finalRol;
+      req.session.user.cliente_id = finalRol === 'cliente' ? asNullableInt(cliente_id) : null;
     }
 
     req.flash('success', 'Usuario actualizado correctamente');

@@ -4,11 +4,38 @@
 
 Endpoint para que el bot externo cree tickets en la bandeja centralizada.
 
+### 1) Auth simple por `.env`
+
+`POST /api/auth/whatsapp`
+
+Body:
+
+```json
+{
+  "user": "mi_bot",
+  "password": "secreto_bot"
+}
+```
+
+Si las credenciales hacen match con `WHATSAPP_AUTH_USER` y `WHATSAPP_AUTH_PASS`, responde:
+
+```json
+{
+  "ok": true,
+  "auth": "ok",
+  "token": "token_compartido"
+}
+```
+
+Este endpoint esta pensado para que tu otro programa valide acceso contra lo que defines en `.env`.
+
+### 2) Webhook principal
+
 `POST /api/webhooks/whatsapp`
 
 Autenticacion opcional:
 
-- Si existe `WHATSAPP_WEBHOOK_TOKEN`, enviar `Authorization: Bearer <token>` o `x-webhook-token: <token>`.
+- Si existe `WHATSAPP_AUTH_TOKEN` o `WHATSAPP_WEBHOOK_TOKEN`, enviar `Authorization: Bearer <token>` o `x-webhook-token: <token>`.
 - Si no existe esa variable, el endpoint queda abierto para pruebas locales.
 
 Payload minimo:
@@ -31,9 +58,31 @@ Payload recomendado:
   "name": "Cliente Demo",
   "text": "Necesito abrir un reclamo por un error urgente.",
   "reference": "WSP-123456",
-  "process": "recepcion"
+  "process": "recepcion",
+  "dryRun": true
 }
 ```
+
+Si `dryRun=true`, el sistema **no crea ticket** y devuelve evaluacion para decidir si conviene crearlo o reutilizar uno similar:
+
+```json
+{
+  "ok": true,
+  "mode": "evaluation",
+  "shouldCreateTicket": false,
+  "similarTickets": [
+    {
+      "id": 11,
+      "nro_ticket": 90011,
+      "asunto": "Problema en recepcion",
+      "estado": "En Proceso",
+      "prioridad": "Alta"
+    }
+  ]
+}
+```
+
+Con `dryRun=false` (o sin el campo), crea ticket con la logica normal de bolsa soporte + asignacion interna.
 
 Respuesta esperada:
 
@@ -60,12 +109,17 @@ Variables utiles para el script:
 
 ```env
 WHATSAPP_TEST_URL=http://localhost:3000/api/webhooks/whatsapp
+WHATSAPP_TEST_AUTH_URL=http://localhost:3000/api/auth/whatsapp
+WHATSAPP_AUTH_USER=mi_bot
+WHATSAPP_AUTH_PASS=secreto_bot
+WHATSAPP_AUTH_TOKEN=token_compartido
 WHATSAPP_WEBHOOK_TOKEN=token_compartido
 WHATSAPP_TEST_PHONE=+54 9 351 555 0123
 WHATSAPP_TEST_NAME=Cliente Demo
 WHATSAPP_TEST_TEXT=Texto del reclamo
 WHATSAPP_TEST_REFERENCE=WSP-DEMO-001
 WHATSAPP_TEST_PROCESS=recepcion
+WHATSAPP_TEST_DRY_RUN=true
 ```
 
 ## Mail entrante
