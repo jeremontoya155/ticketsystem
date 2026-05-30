@@ -445,7 +445,7 @@ router.get('/:id', requireLogin, async (req, res) => {
               AND (t2.receptor_id = u.id OR t2.ejecutor_id = u.id)
               AND t2.estado IN ('Pendiente', 'En Proceso')
           ) AS tickets_misma_empresa
-        FROM usuarios
+        FROM usuarios u
         WHERE u.activo = true
           AND u.rol IN ('admin', 'admin_soporte', 'admin_desarrollo', 'tecnico_soporte', 'soporte', 'tecnico_desarrollo', 'desarrollo')
         ORDER BY tickets_misma_empresa DESC, u.nombre
