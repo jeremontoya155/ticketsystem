@@ -379,6 +379,33 @@
           <label>Origen</label>
           <div class="note-box"><%= ticket.origen_contacto || '' %><% if (ticket.origen_email) { %><br><%= ticket.origen_email %><% } %><% if (ticket.origen_telefono) { %><br><%= ticket.origen_telefono %><% } %><% if (!ticket.origen_contacto && !ticket.origen_email && !ticket.origen_telefono) { %>Sin datos de origen<% } %></div>
         </div>
+        <% if (contactosEmpresa && contactosEmpresa.length) { %>
+        <div class="assign-item">
+          <label>Contactos habilitados</label>
+          <div class="note-box">
+            <% contactosEmpresa.forEach((contacto) => { %>
+              <div style="margin-bottom:10px; padding-bottom:10px; border-bottom:1px solid rgba(148,163,184,.2);">
+                <strong><%= contacto.nombre || 'Sin nombre' %></strong>
+                <% if (contacto.principal) { %>
+                  <span class="badge channel-badge">Principal</span>
+                <% } %>
+                <% if (contacto.lugar) { %>
+                  <br><small><i class="fas fa-map-marker-alt"></i> <%= contacto.lugar %></small>
+                <% } %>
+                <% if (contacto.telefono) { %>
+                  <br><small><i class="fas fa-phone"></i> <%= contacto.telefono %></small>
+                <% } %>
+                <% if (contacto.email) { %>
+                  <br><small><i class="fas fa-envelope"></i> <%= contacto.email %></small>
+                <% } %>
+                <% if (contacto.canal_preferido) { %>
+                  <br><small>Canal sugerido: <%= contacto.canal_preferido %></small>
+                <% } %>
+              </div>
+            <% }) %>
+          </div>
+        </div>
+        <% } %>
         <% if (!isClientUser && ticket.cliente_notas) { %>
         <div class="assign-item">
           <label>Notas</label>

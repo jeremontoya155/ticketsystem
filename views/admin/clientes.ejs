@@ -27,6 +27,7 @@
             <th>Tipo</th>
             <th>Contacto</th>
             <th>Email</th>
+            <th>Contactos</th>
             <th>Tickets</th>
             <th>Acciones</th>
           </tr>
@@ -44,6 +45,7 @@
               <small class="muted-line"><%= cliente.telefono || 'Sin telefono' %></small>
             </td>
             <td><%= cliente.email || 'Sin email' %></td>
+            <td><strong><%= cliente.total_contactos || 0 %></strong></td>
             <td><strong><%= cliente.total_tickets %></strong></td>
             <td>
               <a href="/admin/clientes/<%= cliente.id %>/editar" class="btn-icon"><i class="fas fa-edit"></i></a>

@@ -56,6 +56,8 @@ Payload recomendado:
   "messageId": "wsp-123456",
   "phone": "+54 9 351 555 0123",
   "name": "Cliente Demo",
+  "company": "Empresa Demo SA",
+  "clientCode": 101,
   "text": "Necesito abrir un reclamo por un error urgente.",
   "reference": "WSP-123456",
   "process": "recepcion",
@@ -83,6 +85,7 @@ Si `dryRun=true`, el sistema **no crea ticket** y devuelve evaluacion para decid
 ```
 
 Con `dryRun=false` (o sin el campo), crea ticket con la logica normal de bolsa soporte + asignacion interna.
+Para WhatsApp, la asignacion inicial prioriza un perfil `admin` / `admin_soporte` como triage rapido para que luego pueda derivar al equipo.
 
 Respuesta esperada:
 
@@ -95,6 +98,7 @@ Respuesta esperada:
     "canal_origen": "whatsapp",
     "cliente_asociado": false,
     "cliente_id": null,
+    "assigned_to_admin_suggestion": true,
     "resumen": "Necesito abrir un reclamo..."
   },
   "reply": "Recibimos tu reclamo. Ticket #90010."

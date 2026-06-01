@@ -38,6 +38,8 @@ async function main() {
     messageId: `test-wsp-${Date.now()}`,
     phone: process.env.WHATSAPP_TEST_PHONE || '+54 9 351 555 0123',
     name: process.env.WHATSAPP_TEST_NAME || 'Cliente WhatsApp Demo',
+    company: process.env.WHATSAPP_TEST_COMPANY || 'Empresa Demo SA',
+    clientCode: process.env.WHATSAPP_TEST_CLIENT_CODE ? parseInt(process.env.WHATSAPP_TEST_CLIENT_CODE, 10) : undefined,
     text: process.env.WHATSAPP_TEST_TEXT || 'Hola, necesito abrir un reclamo porque el sistema no me deja cerrar una recepcion. Es urgente para poder facturar.',
     reference: process.env.WHATSAPP_TEST_REFERENCE || 'WSP-DEMO-001',
     process: process.env.WHATSAPP_TEST_PROCESS || 'recepcion',

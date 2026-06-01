@@ -113,7 +113,7 @@
               <strong><%= cliente.nombre %></strong>
               <small><%= cliente.contacto_nombre || cliente.email || 'Sin contacto' %></small>
             </div>
-            <span class="simple-list-meta"><%= cliente.telefono || 'Editar' %></span>
+            <span class="simple-list-meta"><%= (cliente.total_contactos || 0) %> contactos</span>
           </a>
           <% }) %>
         </div>

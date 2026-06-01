@@ -205,10 +205,15 @@ router.post('/webhooks/whatsapp', requireWebhookToken, async (req, res) => {
     }
 
     const asunto = payload.subject || `WhatsApp de ${name || phone}`;
+    const empresaPayload = payload.empresa || payload.company || payload.companyName || payload.cliente || payload.client;
     const matchedClient = await findClientByOrigin({
       phone,
       email: payload.email || payload.origen_email,
-      codigoExterno: payload.clientCode || payload.codigo_cliente
+      codigoExterno: payload.clientCode || payload.codigo_cliente,
+      nombreEmpresa: empresaPayload,
+      empresa: payload.empresa,
+      companyName: payload.companyName,
+      company: payload.company
     });
     const similares = await fetchSimilarOpenTickets(matchedClient?.id, `${asunto} ${text}`, payload.similarLimit || 5);
     const dryRun = payload.dryRun === true || payload.dry_run === true || payload.onlyEvaluate === true;
@@ -224,7 +229,11 @@ router.post('/webhooks/whatsapp', requireWebhookToken, async (req, res) => {
           nombre: matchedClient.nombre,
           email: matchedClient.email,
           telefono: matchedClient.telefono
-        } : null
+        } : null,
+        suggestedAssignment: {
+          mode: 'admin-triage',
+          note: 'Al crearse el ticket de WhatsApp se prioriza asignacion inicial a un admin para distribucion rapida.'
+        }
       });
     }
 
@@ -240,6 +249,10 @@ router.post('/webhooks/whatsapp', requireWebhookToken, async (req, res) => {
       cuerpo: text,
       referenciaExterna: payload.reference || payload.referencia || null,
       proceso: payload.process || payload.proceso || null,
+      nombreEmpresa: empresaPayload,
+      empresa: payload.empresa,
+      companyName: payload.companyName,
+      company: payload.company,
       payload
     });
 

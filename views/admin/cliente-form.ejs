@@ -8,6 +8,17 @@
 </div>
 
 <div class="form-container">
+  <% const contactosData = (contactos && contactos.length)
+    ? contactos
+    : [{
+      nombre: cliente.contacto_nombre || '',
+      lugar: '',
+      telefono: cliente.telefono || '',
+      email: cliente.email || '',
+      canal_preferido: (cliente.telefono ? 'whatsapp' : (cliente.email ? 'email' : 'telefono')),
+      principal: true,
+      notas: ''
+    }]; %>
   <form action="/admin/clientes/<%= accion === 'editar' ? cliente.id + '/editar' : 'nuevo' %>" method="POST" class="ticket-form">
     <div class="form-row">
       <div class="form-group">
@@ -52,6 +63,67 @@
       <textarea name="notas" rows="4" class="form-textarea" placeholder="Informacion adicional para soporte, reportes o seguimiento..."><%= cliente.notas || '' %></textarea>
     </div>
 
+    <div class="card mt-2">
+      <div class="card-header">
+        <h3><i class="fas fa-address-book"></i> Contactos y lugares de recepcion de tickets</h3>
+      </div>
+      <div class="card-body">
+        <p class="field-help">Podes registrar multiples personas, telefonos y lugares (sucursal, sede, deposito, etc.).</p>
+        <div id="contactRows">
+          <% contactosData.forEach((ct, index) => { %>
+          <div class="contact-row" data-contact-row="1">
+            <div class="form-row">
+              <div class="form-group">
+                <label>Persona</label>
+                <input type="text" name="contactos[<%= index %>][nombre]" value="<%= ct.nombre || '' %>" class="form-input" placeholder="Nombre y apellido">
+              </div>
+              <div class="form-group">
+                <label>Lugar / sede</label>
+                <input type="text" name="contactos[<%= index %>][lugar]" value="<%= ct.lugar || '' %>" class="form-input" placeholder="Casa central / Sucursal Centro">
+              </div>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group">
+                <label>Telefono / WhatsApp</label>
+                <input type="text" name="contactos[<%= index %>][telefono]" value="<%= ct.telefono || '' %>" class="form-input" placeholder="+54 9 ...">
+              </div>
+              <div class="form-group">
+                <label>Email</label>
+                <input type="email" name="contactos[<%= index %>][email]" value="<%= ct.email || '' %>" class="form-input" placeholder="persona@empresa.com">
+              </div>
+              <div class="form-group">
+                <label>Canal preferido</label>
+                <select name="contactos[<%= index %>][canal_preferido]" class="form-select">
+                  <option value="telefono" <%= ct.canal_preferido === 'telefono' ? 'selected' : '' %>>Telefono</option>
+                  <option value="whatsapp" <%= ct.canal_preferido === 'whatsapp' ? 'selected' : '' %>>WhatsApp</option>
+                  <option value="email" <%= ct.canal_preferido === 'email' ? 'selected' : '' %>>Email</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group" style="flex: 2;">
+                <label>Notas del contacto</label>
+                <input type="text" name="contactos[<%= index %>][notas]" value="<%= ct.notas || '' %>" class="form-input" placeholder="Horario, area, observaciones">
+              </div>
+              <div class="form-group" style="align-self:flex-end; display:flex; gap:8px;">
+                <label class="toggle-label">
+                  <input type="checkbox" name="contactos[<%= index %>][principal]" value="true" <%= ct.principal ? 'checked' : '' %> data-principal-toggle="1">
+                  <span class="toggle-switch"></span>
+                  Principal
+                </label>
+                <button type="button" class="btn-secondary btn-remove-contact"><i class="fas fa-trash"></i></button>
+              </div>
+            </div>
+            <hr>
+          </div>
+          <% }) %>
+        </div>
+        <button type="button" id="addContactBtn" class="btn-secondary"><i class="fas fa-plus"></i> Agregar contacto</button>
+      </div>
+    </div>
+
     <div class="form-actions">
       <a href="/admin/clientes" class="btn-secondary">Cancelar</a>
       <button type="submit" class="btn-primary btn-lg">
@@ -60,5 +132,118 @@
     </div>
   </form>
 </div>
+
+<script>
+  (function () {
+    const rowsContainer = document.getElementById('contactRows');
+    const addButton = document.getElementById('addContactBtn');
+
+    function reindexRows() {
+      const rows = Array.from(rowsContainer.querySelectorAll('[data-contact-row]'));
+      rows.forEach((row, rowIndex) => {
+        row.querySelectorAll('input[name], select[name], textarea[name]').forEach((field) => {
+          field.name = field.name.replace(/contactos\[\d+\]/, `contactos[${rowIndex}]`);
+        });
+      });
+    }
+
+    function ensureSinglePrincipal(changedToggle) {
+      if (!changedToggle.checked) {
+        return;
+      }
+
+      rowsContainer.querySelectorAll('[data-principal-toggle]').forEach((toggle) => {
+        if (toggle !== changedToggle) {
+          toggle.checked = false;
+        }
+      });
+    }
+
+    function buildRow(index) {
+      const wrapper = document.createElement('div');
+      wrapper.className = 'contact-row';
+      wrapper.setAttribute('data-contact-row', '1');
+      wrapper.innerHTML = `
+        <div class="form-row">
+          <div class="form-group">
+            <label>Persona</label>
+            <input type="text" name="contactos[${index}][nombre]" class="form-input" placeholder="Nombre y apellido">
+          </div>
+          <div class="form-group">
+            <label>Lugar / sede</label>
+            <input type="text" name="contactos[${index}][lugar]" class="form-input" placeholder="Casa central / Sucursal Centro">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Telefono / WhatsApp</label>
+            <input type="text" name="contactos[${index}][telefono]" class="form-input" placeholder="+54 9 ...">
+          </div>
+          <div class="form-group">
+            <label>Email</label>
+            <input type="email" name="contactos[${index}][email]" class="form-input" placeholder="persona@empresa.com">
+          </div>
+          <div class="form-group">
+            <label>Canal preferido</label>
+            <select name="contactos[${index}][canal_preferido]" class="form-select">
+              <option value="telefono">Telefono</option>
+              <option value="whatsapp" selected>WhatsApp</option>
+              <option value="email">Email</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group" style="flex: 2;">
+            <label>Notas del contacto</label>
+            <input type="text" name="contactos[${index}][notas]" class="form-input" placeholder="Horario, area, observaciones">
+          </div>
+          <div class="form-group" style="align-self:flex-end; display:flex; gap:8px;">
+            <label class="toggle-label">
+              <input type="checkbox" name="contactos[${index}][principal]" value="true" data-principal-toggle="1">
+              <span class="toggle-switch"></span>
+              Principal
+            </label>
+            <button type="button" class="btn-secondary btn-remove-contact"><i class="fas fa-trash"></i></button>
+          </div>
+        </div>
+        <hr>
+      `;
+
+      return wrapper;
+    }
+
+    addButton?.addEventListener('click', () => {
+      const index = rowsContainer.querySelectorAll('[data-contact-row]').length;
+      rowsContainer.appendChild(buildRow(index));
+      reindexRows();
+    });
+
+    rowsContainer?.addEventListener('click', (event) => {
+      const removeButton = event.target.closest('.btn-remove-contact');
+      if (!removeButton) {
+        return;
+      }
+
+      const rows = rowsContainer.querySelectorAll('[data-contact-row]');
+      if (rows.length <= 1) {
+        return;
+      }
+
+      removeButton.closest('[data-contact-row]')?.remove();
+      reindexRows();
+    });
+
+    rowsContainer?.addEventListener('change', (event) => {
+      const toggle = event.target.closest('[data-principal-toggle]');
+      if (!toggle) {
+        return;
+      }
+
+      ensureSinglePrincipal(toggle);
+    });
+  })();
+</script>
 
 <%- include('../partials/footer') %>
