@@ -169,7 +169,7 @@ async function renderDashboard(req, res) {
           FROM cliente_contactos cc
           WHERE cc.cliente_id = c.id AND cc.activo = true
         ) AS total_contactos
-      FROM clientes
+      FROM clientes c
       ORDER BY c.created_at DESC
       LIMIT 5
     `)
