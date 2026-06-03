@@ -15,6 +15,27 @@
   </div>
 </div>
 
+<%
+  const _alertTh = { 'Urgente': 1, 'Alta': 3, 'Media': 7, 'Baja': 14 };
+  const _warnTh  = { 'Urgente': 0, 'Alta': 1, 'Media': 3, 'Baja': 7 };
+  const _dias    = ticket.dias_transcurridos || 0;
+  const _prio    = ticket.prioridad || 'Media';
+  const _open    = !['Resuelto','Cerrado'].includes(ticket.estado);
+  const _isCrit  = _open && _dias >= (_alertTh[_prio] || 7);
+  const _isWarn  = _open && !_isCrit && _dias >= (_warnTh[_prio] || 3);
+%>
+<% if (_isCrit) { %>
+<div class="delay-alert delay-alert-critical">
+  <i class="fas fa-fire-alt"></i>
+  <strong>Demora crítica:</strong> Este ticket lleva <strong><%= _dias %> día<%= _dias !== 1 ? 's' : '' %></strong> abierto con prioridad <strong><%= _prio %></strong>. Requiere atención inmediata.
+</div>
+<% } else if (_isWarn) { %>
+<div class="delay-alert delay-alert-warning">
+  <i class="fas fa-exclamation-circle"></i>
+  <strong>Demora elevada:</strong> Este ticket lleva <strong><%= _dias %> día<%= _dias !== 1 ? 's' : '' %></strong> abierto con prioridad <strong><%= _prio %></strong>.
+</div>
+<% } %>
+
 <div class="ticket-detail-grid">
   <div class="ticket-main">
     <div class="card">
@@ -429,7 +450,59 @@
       </div>
     </div>
     <% } %>
+
+    <% if (!isClientUser) { %>
+    <div class="card">
+      <div class="card-header"><h3><i class="fas fa-bolt"></i> Resumen Rápido</h3></div>
+      <div class="card-body">
+        <p class="field-help" style="margin-bottom:8px">Texto listo para compartir con un asociado por WhatsApp o mail.</p>
+        <textarea id="quickSummaryText" rows="10" class="form-textarea code-textarea" readonly style="font-size:12px"></textarea>
+        <div class="form-row mt-1" style="gap:8px">
+          <button type="button" class="btn-secondary btn-copy" data-copy-target="quickSummaryText">
+            <i class="fas fa-copy"></i> Copiar
+          </button>
+          <button type="button" class="btn-secondary" id="whatsappSummaryBtn" style="background:rgba(37,211,102,.12);color:#25d366;border-color:rgba(37,211,102,.3)">
+            <i class="fab fa-whatsapp"></i> WhatsApp
+          </button>
+        </div>
+      </div>
+    </div>
+    <% } %>
   </div>
 </div>
+
+<script>
+(function() {
+  const d = {
+    nro:      <%- ticket.nro_ticket %>,
+    cliente:  <%- JSON.stringify(ticket.cliente_nombre || '-') %>,
+    asunto:   <%- JSON.stringify((ticket.asunto || ticket.reclamo || '-').substring(0, 80).replace(/\n/g, ' ')) %>,
+    estado:   <%- JSON.stringify(ticket.estado) %>,
+    prioridad:<%- JSON.stringify(ticket.prioridad) %>,
+    dias:     <%- ticket.dias_transcurridos || 0 %>,
+    receptor: <%- JSON.stringify(ticket.receptor_nombre || '-') %>,
+    ejecutor: <%- JSON.stringify(ticket.ejecutor_nombre || '-') %>,
+    contacto: <%- JSON.stringify(ticket.origen_contacto || ticket.cliente_contacto || '-') %>
+  };
+  const lines = [
+    '📋 *Ticket #' + d.nro + '*',
+    '🏢 Cliente: ' + d.cliente,
+    '📌 Asunto: ' + d.asunto,
+    '⚡ Estado: ' + d.estado + ' | Prioridad: ' + d.prioridad,
+    '⏱ Tiempo abierto: ' + d.dias + ' días',
+    '👤 Receptor: ' + d.receptor,
+    '🔧 Ejecutor: ' + d.ejecutor,
+    '📞 Contacto: ' + d.contacto,
+    '🔗 ' + window.location.href
+  ];
+  const ta = document.getElementById('quickSummaryText');
+  if (ta) ta.value = lines.join('\n');
+
+  const waBtn = document.getElementById('whatsappSummaryBtn');
+  if (waBtn) waBtn.addEventListener('click', function() {
+    window.open('https://wa.me/?text=' + encodeURIComponent(document.getElementById('quickSummaryText').value), '_blank');
+  });
+})();
+</script>
 
 <%- include('../partials/footer') %>
