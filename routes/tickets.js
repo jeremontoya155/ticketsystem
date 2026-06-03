@@ -408,7 +408,7 @@ router.get('/:id', requireLogin, async (req, res) => {
       ? [req.params.id, req.session.user.cliente_id || 0]
       : [req.params.id];
 
-    const [ticketRes, comentariosRes, usuariosRes, notifRes, adjuntosRes] = await Promise.all([
+    const [ticketRes, comentariosRes, usuariosRes, notifRes, adjuntosRes, contactosEmpresaRes] = await Promise.all([
       pool.query(`
         SELECT
           t.*,
@@ -456,6 +456,14 @@ router.get('/:id', requireLogin, async (req, res) => {
         FROM ticket_adjuntos
         WHERE ticket_id = $1
         ORDER BY created_at ASC
+      `, [req.params.id]),
+      pool.query(`
+        SELECT cc.*
+        FROM cliente_contactos cc
+        INNER JOIN tickets t ON t.cliente_id = cc.cliente_id
+        WHERE t.id = $1
+          AND cc.activo = true
+        ORDER BY cc.principal DESC, cc.orden ASC, cc.id ASC
       `, [req.params.id])
     ]);
 
@@ -478,6 +486,7 @@ router.get('/:id', requireLogin, async (req, res) => {
       usuarios: usuariosRes.rows,
       attachments: ticketAttachments,
       attachmentsByComment,
+      contactosEmpresa: contactosEmpresaRes.rows,
       devAssistant,
       canReassign: canManageAssignments(req.session.user),
       unreadCount: parseInt(notifRes.rows[0].unread, 10),

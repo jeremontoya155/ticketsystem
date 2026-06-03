@@ -47,6 +47,55 @@ CREATE TABLE IF NOT EXISTS clientes (
 ALTER TABLE clientes ADD COLUMN IF NOT EXISTS contacto_nombre VARCHAR(150);
 ALTER TABLE clientes ADD COLUMN IF NOT EXISTS notas TEXT;
 
+-- Contactos por empresa (multiples personas/telefonos/lugares)
+CREATE TABLE IF NOT EXISTS cliente_contactos (
+  id SERIAL PRIMARY KEY,
+  cliente_id INTEGER NOT NULL REFERENCES clientes(id) ON DELETE CASCADE,
+  nombre VARCHAR(150),
+  lugar VARCHAR(120),
+  telefono VARCHAR(60),
+  email VARCHAR(150),
+  canal_preferido VARCHAR(20) DEFAULT 'telefono' CHECK (canal_preferido IN ('telefono', 'whatsapp', 'email')),
+  principal BOOLEAN DEFAULT FALSE,
+  activo BOOLEAN DEFAULT TRUE,
+  notas TEXT,
+  orden INTEGER DEFAULT 0,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_cliente_contactos_cliente_id ON cliente_contactos(cliente_id);
+CREATE INDEX IF NOT EXISTS idx_cliente_contactos_email ON cliente_contactos(LOWER(email));
+CREATE INDEX IF NOT EXISTS idx_cliente_contactos_telefono ON cliente_contactos(regexp_replace(COALESCE(telefono, ''), '\\D', '', 'g'));
+
+-- Backfill inicial: si una empresa no tiene contactos, copiar su contacto principal historico.
+INSERT INTO cliente_contactos (cliente_id, nombre, telefono, email, principal, activo, canal_preferido, orden, notas)
+SELECT
+  c.id,
+  NULLIF(TRIM(COALESCE(c.contacto_nombre, '')), '') AS nombre,
+  NULLIF(TRIM(COALESCE(c.telefono, '')), '') AS telefono,
+  NULLIF(TRIM(COALESCE(c.email, '')), '') AS email,
+  true,
+  true,
+  CASE
+    WHEN c.telefono IS NOT NULL AND TRIM(c.telefono) <> '' THEN 'whatsapp'
+    WHEN c.email IS NOT NULL AND TRIM(c.email) <> '' THEN 'email'
+    ELSE 'telefono'
+  END,
+  0,
+  'Contacto migrado desde campos legacy de clientes'
+FROM clientes c
+WHERE NOT EXISTS (
+  SELECT 1
+  FROM cliente_contactos cc
+  WHERE cc.cliente_id = c.id
+)
+  AND (
+    NULLIF(TRIM(COALESCE(c.contacto_nombre, '')), '') IS NOT NULL
+    OR NULLIF(TRIM(COALESCE(c.telefono, '')), '') IS NOT NULL
+    OR NULLIF(TRIM(COALESCE(c.email, '')), '') IS NOT NULL
+  );
+
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -207,5 +256,11 @@ $$ LANGUAGE plpgsql;
 DROP TRIGGER IF EXISTS tickets_updated_at ON tickets;
 CREATE TRIGGER tickets_updated_at
 BEFORE UPDATE ON tickets
+FOR EACH ROW
+EXECUTE FUNCTION update_updated_at();
+
+DROP TRIGGER IF EXISTS cliente_contactos_updated_at ON cliente_contactos;
+CREATE TRIGGER cliente_contactos_updated_at
+BEFORE UPDATE ON cliente_contactos
 FOR EACH ROW
 EXECUTE FUNCTION update_updated_at();

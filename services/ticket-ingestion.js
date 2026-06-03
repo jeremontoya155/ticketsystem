@@ -11,6 +11,13 @@ function normalizePhone(phone) {
   return String(phone || '').replace(/\D/g, '');
 }
 
+function normalizeCompanyName(name) {
+  return String(name || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
+}
+
 function summarizeText(value, maxLength = 260) {
   const text = String(value || '').replace(/\s+/g, ' ').trim();
   if (text.length <= maxLength) {
@@ -20,9 +27,57 @@ function summarizeText(value, maxLength = 260) {
   return `${text.slice(0, maxLength - 3)}...`;
 }
 
-async function findClientByOrigin({ email, phone, codigoExterno } = {}) {
+async function findClientByCompanyContact({ cleanEmail, cleanPhone }) {
+  if (cleanEmail) {
+    const byEmail = await pool.query(`
+      SELECT c.*
+      FROM cliente_contactos cc
+      INNER JOIN clientes c ON c.id = cc.cliente_id
+      WHERE cc.activo = true
+        AND LOWER(COALESCE(cc.email, '')) = $1
+      ORDER BY cc.principal DESC, cc.orden ASC, cc.id ASC
+      LIMIT 1
+    `, [cleanEmail]);
+
+    if (byEmail.rows[0]) {
+      return byEmail.rows[0];
+    }
+  }
+
+  if (cleanPhone) {
+    const byPhone = await pool.query(`
+      SELECT c.*
+      FROM cliente_contactos cc
+      INNER JOIN clientes c ON c.id = cc.cliente_id
+      WHERE cc.activo = true
+        AND (
+          regexp_replace(COALESCE(cc.telefono, ''), '\\D', '', 'g') = $1
+          OR regexp_replace(COALESCE(cc.telefono, ''), '\\D', '', 'g') LIKE '%' || RIGHT($1, 10)
+        )
+      ORDER BY cc.principal DESC, cc.orden ASC, cc.id ASC
+      LIMIT 1
+    `, [cleanPhone]);
+
+    if (byPhone.rows[0]) {
+      return byPhone.rows[0];
+    }
+  }
+
+  return null;
+}
+
+async function findClientByOrigin({
+  email,
+  phone,
+  codigoExterno,
+  nombreEmpresa,
+  empresa,
+  companyName,
+  company
+} = {}) {
   const cleanEmail = normalizeEmail(email);
   const cleanPhone = normalizePhone(phone);
+  const normalizedCompany = normalizeCompanyName(nombreEmpresa || empresa || companyName || company);
 
   if (codigoExterno) {
     const result = await pool.query('SELECT * FROM clientes WHERE codigo_externo = $1 LIMIT 1', [codigoExterno]);
@@ -36,6 +91,11 @@ async function findClientByOrigin({ email, phone, codigoExterno } = {}) {
     if (result.rows[0]) {
       return result.rows[0];
     }
+
+    const byCompanyEmail = await findClientByCompanyContact({ cleanEmail, cleanPhone: '' });
+    if (byCompanyEmail) {
+      return byCompanyEmail;
+    }
   }
 
   if (cleanPhone) {
@@ -48,6 +108,35 @@ async function findClientByOrigin({ email, phone, codigoExterno } = {}) {
     `, [cleanPhone]);
     if (result.rows[0]) {
       return result.rows[0];
+    }
+
+    const byCompanyPhone = await findClientByCompanyContact({ cleanEmail: '', cleanPhone });
+    if (byCompanyPhone) {
+      return byCompanyPhone;
+    }
+  }
+
+  if (normalizedCompany) {
+    const exactResult = await pool.query(`
+      SELECT *
+      FROM clientes
+      WHERE LOWER(nombre) = $1
+      LIMIT 1
+    `, [normalizedCompany]);
+    if (exactResult.rows[0]) {
+      return exactResult.rows[0];
+    }
+
+    const fuzzyResult = await pool.query(`
+      SELECT *
+      FROM clientes
+      WHERE LOWER(nombre) LIKE '%' || $1 || '%'
+         OR $1 LIKE '%' || LOWER(nombre) || '%'
+      ORDER BY LENGTH(nombre) ASC
+      LIMIT 1
+    `, [normalizedCompany]);
+    if (fuzzyResult.rows[0]) {
+      return fuzzyResult.rows[0];
     }
   }
 
@@ -73,6 +162,28 @@ async function getDefaultAssignees(client) {
   return result.rows[0]?.id || null;
 }
 
+async function getSuggestedAdminAssignee(client, canal) {
+  if (canal !== 'whatsapp') {
+    return null;
+  }
+
+  const result = await client.query(`
+    SELECT id
+    FROM usuarios
+    WHERE activo = true
+      AND rol IN ('admin_soporte', 'admin', 'admin_desarrollo')
+    ORDER BY CASE
+      WHEN rol = 'admin_soporte' THEN 1
+      WHEN rol = 'admin' THEN 2
+      WHEN rol = 'admin_desarrollo' THEN 3
+      ELSE 4
+    END, id
+    LIMIT 1
+  `);
+
+  return result.rows[0]?.id || null;
+}
+
 async function createTicketFromExternal(input) {
   const canal = CHANNELS.has(input.canal) ? input.canal : 'web';
   const matchedClient = input.clienteId
@@ -80,7 +191,11 @@ async function createTicketFromExternal(input) {
     : await findClientByOrigin({
       email: input.origenEmail,
       phone: input.origenTelefono,
-      codigoExterno: input.codigoExterno
+      codigoExterno: input.codigoExterno,
+      nombreEmpresa: input.nombreEmpresa,
+      empresa: input.empresa,
+      companyName: input.companyName,
+      company: input.company
     });
 
   const client = await pool.connect();
@@ -89,7 +204,8 @@ async function createTicketFromExternal(input) {
 
     const maxRes = await client.query('SELECT COALESCE(MAX(nro_ticket), 90000) + 1 AS next FROM tickets');
     const nroTicket = maxRes.rows[0].next;
-    const defaultUserId = await getDefaultAssignees(client);
+    const suggestedAdminUserId = await getSuggestedAdminAssignee(client, canal);
+    const defaultUserId = suggestedAdminUserId || await getDefaultAssignees(client);
     const reclamo = input.reclamo || input.cuerpo || input.asunto || 'Solicitud recibida desde canal externo';
     const observacion = input.observacion || (matchedClient ? '' : 'Pendiente de clasificar: no se encontro cliente por origen.');
 
@@ -124,7 +240,7 @@ async function createTicketFromExternal(input) {
     `, [
       ticket.id,
       defaultUserId,
-      `Ticket creado desde ${canal}. ${matchedClient ? 'Cliente asociado automaticamente.' : 'Sin cliente asociado automaticamente.'}`
+      `Ticket creado desde ${canal}. ${matchedClient ? 'Cliente asociado automaticamente.' : 'Sin cliente asociado automaticamente.'}${suggestedAdminUserId ? ' Asignacion inicial sugerida a admin para triage rapido.' : ''}`
     ]);
 
     await client.query(`
@@ -158,6 +274,8 @@ async function createTicketFromExternal(input) {
       canal_origen: canal,
       cliente_asociado: Boolean(matchedClient),
       cliente_id: matchedClient?.id || null,
+      assigned_user_id: defaultUserId,
+      assigned_to_admin_suggestion: Boolean(suggestedAdminUserId),
       resumen: summarizeText(reclamo)
     };
   } catch (error) {
@@ -190,5 +308,6 @@ module.exports = {
   buildPossibleTicketSummary,
   normalizeEmail,
   normalizePhone,
+  normalizeCompanyName,
   summarizeText
 };

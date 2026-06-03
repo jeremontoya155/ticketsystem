@@ -78,11 +78,18 @@ Body recomendado:
   "messageId": "wsp-abc-001",
   "phone": "+54 9 351 555 0123",
   "name": "Cliente Demo",
+  "company": "Empresa Demo SA",
+  "clientCode": 101,
   "text": "Tengo un error al cerrar recepcion",
   "reference": "WSP-ABC-001",
   "process": "recepcion",
   "dryRun": true
 }
+
+Campos utiles para asociar empresa automaticamente:
+
+- `clientCode` o `codigo_cliente` para asociar por `clientes.codigo_externo`.
+- `company`, `companyName`, `empresa`, `cliente` para asociar por nombre de empresa.
 ```
 
 ## 5. Modo evaluacion (sin crear ticket)
@@ -132,11 +139,14 @@ Respuesta esperada:
     "canal_origen": "whatsapp",
     "cliente_asociado": true,
     "cliente_id": 1,
+    "assigned_to_admin_suggestion": true,
     "resumen": "Tengo un error al cerrar recepcion"
   },
   "similarTickets": [],
   "reply": "Recibimos tu reclamo. Ticket #99106."
 }
+
+Nota: en WhatsApp, la asignacion inicial prioriza admin/admin_soporte para triage rapido.
 ```
 
 ## 7. Pruebas rapidas (PowerShell)

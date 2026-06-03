@@ -16,6 +16,106 @@ function asNullableInt(value) {
   return parseInt(value, 10);
 }
 
+function asNullableText(value) {
+  const text = String(value || '').trim();
+  return text || null;
+}
+
+function normalizeChannel(value, fallback = 'telefono') {
+  const normalized = String(value || '').trim().toLowerCase();
+  return ['telefono', 'whatsapp', 'email'].includes(normalized) ? normalized : fallback;
+}
+
+function parseContactRows(rawContactos) {
+  const rows = Array.isArray(rawContactos)
+    ? rawContactos
+    : (rawContactos && typeof rawContactos === 'object' ? Object.values(rawContactos) : []);
+
+  const contacts = rows
+    .map((row, index) => {
+      const nombre = asNullableText(row?.nombre);
+      const lugar = asNullableText(row?.lugar);
+      const telefono = asNullableText(row?.telefono);
+      const email = asNullableText(row?.email);
+      const notas = asNullableText(row?.notas);
+
+      if (!nombre && !telefono && !email && !lugar && !notas) {
+        return null;
+      }
+
+      const fallbackChannel = telefono ? 'whatsapp' : (email ? 'email' : 'telefono');
+
+      return {
+        nombre,
+        lugar,
+        telefono,
+        email,
+        canal_preferido: normalizeChannel(row?.canal_preferido, fallbackChannel),
+        principal: asBool(row?.principal),
+        activo: row?.activo === undefined ? true : asBool(row?.activo),
+        notas,
+        orden: index
+      };
+    })
+    .filter(Boolean);
+
+  if (contacts.length > 0 && !contacts.some((item) => item.principal)) {
+    contacts[0].principal = true;
+  }
+
+  return contacts;
+}
+
+function buildCompanyContacts(body = {}) {
+  const contacts = parseContactRows(body.contactos);
+  if (contacts.length > 0) {
+    return contacts;
+  }
+
+  const legacyNombre = asNullableText(body.contacto_nombre);
+  const legacyTelefono = asNullableText(body.telefono);
+  const legacyEmail = asNullableText(body.email);
+
+  if (!legacyNombre && !legacyTelefono && !legacyEmail) {
+    return [];
+  }
+
+  return [{
+    nombre: legacyNombre,
+    lugar: null,
+    telefono: legacyTelefono,
+    email: legacyEmail,
+    canal_preferido: legacyTelefono ? 'whatsapp' : (legacyEmail ? 'email' : 'telefono'),
+    principal: true,
+    activo: true,
+    notas: null,
+    orden: 0
+  }];
+}
+
+async function replaceCompanyContacts(dbClient, clienteId, contactos) {
+  await dbClient.query('DELETE FROM cliente_contactos WHERE cliente_id = $1', [clienteId]);
+
+  for (const contacto of contactos) {
+    await dbClient.query(`
+      INSERT INTO cliente_contactos (
+        cliente_id, nombre, lugar, telefono, email, canal_preferido, principal, activo, notas, orden
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+    `, [
+      clienteId,
+      contacto.nombre,
+      contacto.lugar,
+      contacto.telefono,
+      contacto.email,
+      contacto.canal_preferido,
+      contacto.principal,
+      contacto.activo,
+      contacto.notas,
+      contacto.orden
+    ]);
+  }
+}
+
 function buildUserDefaults(usuario = {}) {
   return {
     ...usuario,
@@ -58,9 +158,19 @@ async function renderDashboard(req, res) {
       FROM tickets
     `),
     pool.query(`
-      SELECT id, nombre, email, contacto_nombre, telefono
-      FROM clientes
-      ORDER BY created_at DESC
+      SELECT
+        c.id,
+        c.nombre,
+        c.email,
+        c.contacto_nombre,
+        c.telefono,
+        (
+          SELECT COUNT(*)
+          FROM cliente_contactos cc
+          WHERE cc.cliente_id = c.id AND cc.activo = true
+        ) AS total_contactos
+      FROM clientes c
+      ORDER BY c.created_at DESC
       LIMIT 5
     `)
   ]);
@@ -260,10 +370,17 @@ router.get('/clientes', requireLogin, requireAdmin, async (_req, res) => {
   const result = await pool.query(`
     SELECT
       c.*,
-      COUNT(t.id) AS total_tickets
+      (
+        SELECT COUNT(*)
+        FROM tickets t
+        WHERE t.cliente_id = c.id
+      ) AS total_tickets,
+      (
+        SELECT COUNT(*)
+        FROM cliente_contactos cc
+        WHERE cc.cliente_id = c.id AND cc.activo = true
+      ) AS total_contactos
     FROM clientes c
-    LEFT JOIN tickets t ON t.cliente_id = c.id
-    GROUP BY c.id
     ORDER BY c.nombre ASC
   `);
 
@@ -277,6 +394,7 @@ router.get('/clientes/nuevo', requireLogin, requireAdmin, (_req, res) => {
   res.render('admin/cliente-form', {
     title: 'Nueva Empresa',
     cliente: {},
+    contactos: [],
     accion: 'nuevo'
   });
 });
@@ -293,32 +411,54 @@ router.post('/clientes/nuevo', requireLogin, requireAdmin, async (req, res) => {
     notas
   } = req.body;
 
+  const client = await pool.connect();
   try {
-    await pool.query(`
+    const contactos = buildCompanyContacts(req.body);
+    const principal = contactos.find((item) => item.principal) || contactos[0] || null;
+
+    await client.query('BEGIN');
+
+    const result = await client.query(`
       INSERT INTO clientes (
         codigo_externo, nombre, tipo_cliente, nombre_tipo, contacto_nombre, telefono, email, notas
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      RETURNING id
     `, [
       asNullableInt(codigo_externo),
       nombre,
       asNullableInt(tipo_cliente),
-      nombre_tipo || null,
-      contacto_nombre || null,
-      telefono || null,
-      email || null,
-      notas || null
+      asNullableText(nombre_tipo),
+      asNullableText(contacto_nombre) || principal?.nombre || null,
+      asNullableText(telefono) || principal?.telefono || null,
+      asNullableText(email) || principal?.email || null,
+      asNullableText(notas)
     ]);
+
+    await replaceCompanyContacts(client, result.rows[0].id, contactos);
+    await client.query('COMMIT');
 
     req.flash('success', 'Empresa creada correctamente');
     res.redirect('/admin/clientes');
   } catch (error) {
+    await client.query('ROLLBACK');
     req.flash('error', `Error creando empresa: ${error.message}`);
     res.redirect('/admin/clientes/nuevo');
+  } finally {
+    client.release();
   }
 });
 
 router.get('/clientes/:id/editar', requireLogin, requireAdmin, async (req, res) => {
-  const result = await pool.query('SELECT * FROM clientes WHERE id = $1', [req.params.id]);
+  const [result, contactsRes] = await Promise.all([
+    pool.query('SELECT * FROM clientes WHERE id = $1', [req.params.id]),
+    pool.query(`
+      SELECT *
+      FROM cliente_contactos
+      WHERE cliente_id = $1
+      ORDER BY principal DESC, orden ASC, id ASC
+    `, [req.params.id])
+  ]);
+
   if (!result.rows[0]) {
     req.flash('error', 'Empresa no encontrada');
     return res.redirect('/admin/clientes');
@@ -327,6 +467,7 @@ router.get('/clientes/:id/editar', requireLogin, requireAdmin, async (req, res) 
   res.render('admin/cliente-form', {
     title: 'Editar Empresa',
     cliente: result.rows[0],
+    contactos: contactsRes.rows,
     accion: 'editar'
   });
 });
@@ -343,8 +484,13 @@ router.post('/clientes/:id/editar', requireLogin, requireAdmin, async (req, res)
     notas
   } = req.body;
 
+  const client = await pool.connect();
   try {
-    await pool.query(`
+    const contactos = buildCompanyContacts(req.body);
+    const principal = contactos.find((item) => item.principal) || contactos[0] || null;
+
+    await client.query('BEGIN');
+    await client.query(`
       UPDATE clientes
       SET
         codigo_externo = $1,
@@ -360,19 +506,25 @@ router.post('/clientes/:id/editar', requireLogin, requireAdmin, async (req, res)
       asNullableInt(codigo_externo),
       nombre,
       asNullableInt(tipo_cliente),
-      nombre_tipo || null,
-      contacto_nombre || null,
-      telefono || null,
-      email || null,
-      notas || null,
+      asNullableText(nombre_tipo),
+      asNullableText(contacto_nombre) || principal?.nombre || null,
+      asNullableText(telefono) || principal?.telefono || null,
+      asNullableText(email) || principal?.email || null,
+      asNullableText(notas),
       req.params.id
     ]);
+
+    await replaceCompanyContacts(client, req.params.id, contactos);
+    await client.query('COMMIT');
 
     req.flash('success', 'Empresa actualizada correctamente');
     res.redirect('/admin/clientes');
   } catch (error) {
+    await client.query('ROLLBACK');
     req.flash('error', `Error actualizando empresa: ${error.message}`);
     res.redirect(`/admin/clientes/${req.params.id}/editar`);
+  } finally {
+    client.release();
   }
 });
 
