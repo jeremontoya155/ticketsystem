@@ -5,7 +5,14 @@
     <h1><i class="fas fa-ticket-alt"></i> Tickets</h1>
     <p class="subtitle">Bandeja centralizada para web, mail, WhatsApp y VFP</p>
   </div>
-  <a href="/tickets/nuevo" class="btn-primary"><i class="fas fa-plus"></i> Nuevo Ticket</a>
+  <div class="header-actions">
+    <% if (user.rol !== 'cliente') { %>
+    <form action="/tickets/whatsapp/tomar" method="POST" style="display:inline">
+      <button type="submit" class="btn-secondary"><i class="fab fa-whatsapp"></i> Tomar WhatsApp</button>
+    </form>
+    <% } %>
+    <a href="/tickets/nuevo" class="btn-primary"><i class="fas fa-plus"></i> Nuevo Ticket</a>
+  </div>
 </div>
 
 <!-- Stats Cards -->
@@ -47,6 +54,24 @@
   </div>
 </div>
 
+<!-- Periodo Selector -->
+<% if (user.rol !== 'cliente') { %>
+<div class="periodo-bar">
+  <div class="periodo-selector">
+    <label><i class="fas fa-calendar-alt"></i> Período:</label>
+    <div class="periodo-buttons">
+      <a href="?periodo=7&estado=<%= filters.estado || '' %>&prioridad=<%= filters.prioridad || '' %>&canal=<%= filters.canal || '' %>&buscar=<%= filters.buscar || '' %>" class="periodo-btn <%= filters.periodo == '7' ? 'active' : '' %>">7 días</a>
+      <a href="?periodo=30&estado=<%= filters.estado || '' %>&prioridad=<%= filters.prioridad || '' %>&canal=<%= filters.canal || '' %>&buscar=<%= filters.buscar || '' %>" class="periodo-btn <%= !filters.periodo || filters.periodo == '30' ? 'active' : '' %>">30 días</a>
+      <a href="?periodo=90&estado=<%= filters.estado || '' %>&prioridad=<%= filters.prioridad || '' %>&canal=<%= filters.canal || '' %>&buscar=<%= filters.buscar || '' %>" class="periodo-btn <%= filters.periodo == '90' ? 'active' : '' %>">90 días</a>
+      <a href="?periodo=365&estado=<%= filters.estado || '' %>&prioridad=<%= filters.prioridad || '' %>&canal=<%= filters.canal || '' %>&buscar=<%= filters.buscar || '' %>" class="periodo-btn <%= filters.periodo == '365' ? 'active' : '' %>">1 año</a>
+    </div>
+  </div>
+  <button type="button" class="btn-secondary" id="btnReporteCliente" onclick="document.getElementById('modalReporteCliente').style.display='flex'">
+    <i class="fas fa-file-export"></i> Enviar Reporte a Cliente
+  </button>
+</div>
+<% } %>
+
 <!-- Charts Row -->
 <div class="charts-row">
   <div class="chart-card">
@@ -87,6 +112,12 @@
       <% [['web','Web'],['mail','Mail'],['whatsapp','WhatsApp'],['vfp','VFP']].forEach(([value,label]) => { %>
         <option value="<%= value %>" <%= filters.canal === value ? 'selected' : '' %>><%= label %></option>
       <% }) %>
+    </select>
+    <select name="periodo">
+      <option value="7" <%= filters.periodo == '7' ? 'selected' : '' %>>7 días</option>
+      <option value="30" <%= !filters.periodo || filters.periodo == '30' ? 'selected' : '' %>>30 días</option>
+      <option value="90" <%= filters.periodo == '90' ? 'selected' : '' %>>90 días</option>
+      <option value="365" <%= filters.periodo == '365' ? 'selected' : '' %>>1 año</option>
     </select>
     <button type="submit" class="btn-primary"><i class="fas fa-filter"></i> Filtrar</button>
     <a href="/tickets" class="btn-secondary"><i class="fas fa-times"></i> Limpiar</a>
@@ -187,7 +218,7 @@
        class="page-btn <%= i === pagination.current ? 'active' : '' %>"><%= i %></a>
   <% } %>
   <% if (pagination.current < pagination.total) { %>
-    <a href="?page=<%= pagination.current + 1 %>&estado=<%= filters.estado||'' %>&prioridad=<%= filters.prioridad||'' %>&canal=<%= filters.canal||'' %>&buscar=<%= filters.buscar||'' %>" class="page-btn">
+    <a href="?page=<%= pagination.current + 1 %>&estado=<%= filters.estado||'' %>&prioridad=<%= filters.prioridad||'' %>&canal=<%= filters.canal||'' %>&buscar=<%= filters.buscar||'' %>&periodo=<%= filters.periodo||'30' %>" class="page-btn">
       <i class="fas fa-chevron-right"></i>
     </a>
   <% } %>
@@ -196,8 +227,9 @@
 <% } %>
 
 <script>
+const currentPeriodo = '<%= filters.periodo || "30" %>';
 // Cargar gráficos
-fetch('/api/stats').then(r=>r.json()).then(data => {
+fetch('/api/stats?periodo=' + currentPeriodo).then(r=>r.json()).then(data => {
   const isDark = true;
   const textColor = '#94a3b8';
   const gridColor = '#1e293b';
@@ -241,6 +273,92 @@ fetch('/api/stats').then(r=>r.json()).then(data => {
     strip.setAttribute('data-channel-strip', '1');
     strip.innerHTML = data.canales.map(item => `<span class="badge channel-badge canal-${item.canal}">${item.canal}: ${item.total}</span>`).join('');
     document.querySelector('.charts-row')?.after(strip);
+  }
+});
+</script>
+
+<!-- Modal Reporte Cliente -->
+<div id="modalReporteCliente" class="modal-overlay" style="display:none" onclick="if(event.target===this)this.style.display='none'">
+  <div class="modal-content modal-large">
+    <div class="modal-header">
+      <h3><i class="fas fa-file-export"></i> Enviar Reporte a Cliente</h3>
+      <button type="button" class="modal-close" onclick="document.getElementById('modalReporteCliente').style.display='none'">&times;</button>
+    </div>
+    <div class="modal-body-split">
+      <div class="modal-form-side">
+        <form id="formReporteCliente" action="/tickets/enviar-reporte-cliente" method="POST">
+          <div class="form-group">
+            <label>Cliente</label>
+            <select name="cliente_id" id="reporteClienteId" required class="form-select">
+              <option value="">Seleccionar cliente...</option>
+              <% clientes.forEach(c => { %>
+                <option value="<%= c.id %>"><%= c.nombre %></option>
+              <% }) %>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Período</label>
+            <select name="periodo" id="reportePeriodo" class="form-select">
+              <option value="7">Última semana (7 días)</option>
+              <option value="30" selected>Último mes (30 días)</option>
+              <option value="90">Últimos 3 meses (90 días)</option>
+              <option value="365">Último año (365 días)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Mensaje personalizado (opcional)</label>
+            <textarea name="mensaje_personalizado" id="reporteMensaje" rows="4" class="form-textarea" placeholder="Hola, les compartimos el resumen de tickets del período..."></textarea>
+          </div>
+          <div class="modal-actions">
+            <button type="button" class="btn-secondary" onclick="document.getElementById('modalReporteCliente').style.display='none'">Cancelar</button>
+            <button type="button" class="btn-secondary" id="btnPreviewReporte"><i class="fas fa-eye"></i> Vista Previa</button>
+            <button type="submit" class="btn-primary"><i class="fas fa-paper-plane"></i> Enviar</button>
+          </div>
+        </form>
+      </div>
+      <div class="modal-preview-side" id="previewContainer" style="display:none">
+        <div class="preview-header">
+          <strong>Vista Previa del Reporte</strong>
+          <span id="previewInfo" class="text-muted"></span>
+        </div>
+        <iframe id="previewFrame" class="preview-frame" sandbox="allow-same-origin"></iframe>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+document.getElementById('btnPreviewReporte')?.addEventListener('click', async () => {
+  const clienteId = document.getElementById('reporteClienteId').value;
+  const periodo = document.getElementById('reportePeriodo').value;
+  const mensaje = document.getElementById('reporteMensaje').value;
+  const previewContainer = document.getElementById('previewContainer');
+  const previewFrame = document.getElementById('previewFrame');
+  const previewInfo = document.getElementById('previewInfo');
+
+  if (!clienteId) {
+    alert('Seleccioná un cliente primero');
+    return;
+  }
+
+  previewInfo.textContent = 'Cargando...';
+  previewContainer.style.display = 'block';
+
+  try {
+    const res = await fetch('/tickets/reporte-preview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cliente_id: clienteId, periodo, mensaje_personalizado: mensaje })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      previewFrame.srcdoc = data.html;
+      previewInfo.textContent = `${data.cliente} - ${data.periodo}`;
+    } else {
+      previewInfo.textContent = 'Error: ' + (data.error || 'Desconocido');
+    }
+  } catch (err) {
+    previewInfo.textContent = 'Error de red';
   }
 });
 </script>

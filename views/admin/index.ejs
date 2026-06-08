@@ -42,6 +42,80 @@
   </div>
 </div>
 
+<%
+  const usuariosInternos = usuarios.filter((u) => u.rol !== 'cliente' && u.activo);
+  const ticketsSoporte = (ticketsBolsa || []).filter((t) => t.bolsa_asignada !== 'desarrollo');
+  const ticketsDesarrollo = (ticketsBolsa || []).filter((t) => t.bolsa_asignada === 'desarrollo');
+%>
+
+<div class="card queue-board-card">
+  <div class="card-header queue-board-header">
+    <div>
+      <h3><i class="fas fa-inbox"></i> Bolsa de tickets</h3>
+      <p class="panel-note">Derivacion rapida desde administracion: cambia bolsa, receptor y ejecutor sin abrir cada ticket.</p>
+    </div>
+    <a href="/tickets" class="btn-secondary"><i class="fas fa-list"></i> Ver bandeja completa</a>
+  </div>
+  <div class="card-body">
+    <div class="queue-board">
+      <% [['soporte', 'Soporte', ticketsSoporte], ['desarrollo', 'Desarrollo', ticketsDesarrollo]].forEach(([bolsa, titulo, items]) => { %>
+      <section class="queue-lane queue-lane-<%= bolsa %>" data-bolsa="<%= bolsa %>" ondragover="handleDragOver(event)" ondrop="handleDrop(event)">
+        <div class="queue-lane-head">
+          <div>
+            <strong><%= titulo %></strong>
+            <small><%= items.length %> abiertos visibles</small>
+          </div>
+          <span class="queue-count"><%= items.length %></span>
+        </div>
+
+        <% if (!items.length) { %>
+          <div class="empty-state-sm">Sin tickets pendientes en esta bolsa</div>
+        <% } else { %>
+          <div class="queue-ticket-list">
+            <% items.forEach((ticket) => { %>
+            <article class="queue-ticket-card" draggable="true" data-ticket-id="<%= ticket.id %>" data-current-bolsa="<%= ticket.bolsa_asignada %>" ondragstart="handleDragStart(event)">
+              <div class="queue-ticket-top">
+                <a href="/tickets/<%= ticket.id %>" class="queue-ticket-number">#<%= ticket.nro_ticket %></a>
+                <span class="badge prio-<%= ticket.prioridad.toLowerCase() %>"><%= ticket.prioridad %></span>
+                <span class="badge channel-badge canal-<%= ticket.canal_origen %>"><%= ({web:'Web',mail:'Mail',whatsapp:'WhatsApp',vfp:'VFP'}[ticket.canal_origen] || ticket.canal_origen) %></span>
+              </div>
+              <strong class="queue-ticket-title"><%= ticket.asunto || (ticket.reclamo ? ticket.reclamo.substring(0, 90) : 'Sin asunto') %></strong>
+              <div class="queue-ticket-meta">
+                <span><i class="fas fa-building"></i> <%= ticket.cliente_nombre || 'Sin empresa' %></span>
+                <span><i class="fas fa-clock"></i> <%= moment(ticket.fecha_creacion).fromNow() %></span>
+              </div>
+              <div class="queue-ticket-current">
+                <span>R: <%= ticket.receptor_nombre || 'sin receptor' %></span>
+                <span>E: <%= ticket.ejecutor_nombre || 'sin ejecutor' %></span>
+              </div>
+              <form action="/tickets/<%= ticket.id %>/asignar" method="POST" class="queue-assign-form">
+                <input type="hidden" name="return_to" value="/admin">
+                <select name="bolsa_asignada" class="form-select">
+                  <option value="soporte" <%= ticket.bolsa_asignada !== 'desarrollo' ? 'selected' : '' %>>Soporte</option>
+                  <option value="desarrollo" <%= ticket.bolsa_asignada === 'desarrollo' ? 'selected' : '' %>>Desarrollo</option>
+                </select>
+                <select name="receptor_id" class="form-select">
+                  <% usuariosInternos.forEach((u) => { %>
+                    <option value="<%= u.id %>" <%= ticket.receptor_id === u.id ? 'selected' : '' %>><%= u.nombre %></option>
+                  <% }) %>
+                </select>
+                <select name="ejecutor_id" class="form-select">
+                  <% usuariosInternos.forEach((u) => { %>
+                    <option value="<%= u.id %>" <%= ticket.ejecutor_id === u.id ? 'selected' : '' %>><%= u.nombre %></option>
+                  <% }) %>
+                </select>
+                <button type="submit" class="btn-primary btn-queue"><i class="fas fa-random"></i> Derivar</button>
+              </form>
+            </article>
+            <% }) %>
+          </div>
+        <% } %>
+      </section>
+      <% }) %>
+    </div>
+  </div>
+</div>
+
 <div class="admin-grid">
   <div class="card">
     <div class="card-header">
@@ -55,6 +129,7 @@
             <th>Email</th>
             <th>Rol</th>
             <th>Tickets</th>
+            <th>Ultimo</th>
             <th>Notificaciones</th>
             <th>Estado</th>
             <th>Acciones</th>
@@ -67,7 +142,12 @@
               <div class="user-row">
                 <span class="user-avatar"><%= u.nombre.charAt(0).toUpperCase() %></span>
                 <div>
-                  <div><%= u.nombre %></div>
+                  <div class="user-name-line">
+                    <span><%= u.nombre %></span>
+                    <a href="/admin/usuarios/<%= u.id %>/editar" class="inline-edit-link" title="Editar usuario" aria-label="Editar usuario <%= u.nombre %>">
+                      <i class="fas fa-pen"></i>
+                    </a>
+                  </div>
                   <small class="muted-line"><%= u.rol === 'cliente' ? (u.cliente_nombre || 'Cliente sin empresa') : (u.email_notif || u.email) %></small>
                 </div>
               </div>
@@ -77,6 +157,20 @@
             <td>
               <strong><%= u.total_tickets %></strong>
               <small class="muted-line"><%= u.pendientes %> pendientes</small>
+            </td>
+            <td>
+              <% if (u.ultimo_ticket_id) { %>
+                <a href="/tickets/<%= u.ultimo_ticket_id %>" class="activity-link">
+                  <span class="activity-head">
+                    <strong>#<%= u.ultimo_ticket_nro %></strong>
+                    <span class="badge channel-badge canal-<%= u.ultimo_ticket_canal || 'web' %>"><%= ({web:'Web',mail:'Mail',whatsapp:'WhatsApp',vfp:'VFP'}[u.ultimo_ticket_canal || 'web'] || u.ultimo_ticket_canal || 'Web') %></span>
+                  </span>
+                  <span class="activity-summary"><%= u.ultima_actividad_resumen || 'Sin resumen' %></span>
+                  <small class="muted-line"><%= u.ultima_actividad_tipo %> - <%= u.ultimo_ticket_estado %> - <%= moment(u.ultima_actividad_at).fromNow() %></small>
+                </a>
+              <% } else { %>
+                <span class="activity-empty">Sin actividad</span>
+              <% } %>
             </td>
             <td>
               <div class="stacked-flags">
@@ -125,5 +219,93 @@
     </div>
   </div>
 </div>
+
+<script>
+  let draggedTicketId = null;
+  let draggedCurrentBolsa = null;
+
+  function handleDragStart(event) {
+    draggedTicketId = event.target.dataset.ticketId;
+    draggedCurrentBolsa = event.target.dataset.currentBolsa;
+    event.dataTransfer.effectAllowed = 'move';
+    event.target.classList.add('dragging');
+  }
+
+  function handleDragOver(event) {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+    const lane = event.currentTarget;
+    lane.classList.add('drag-over');
+  }
+
+  function handleDrop(event) {
+    event.preventDefault();
+    const lane = event.currentTarget;
+    lane.classList.remove('drag-over');
+
+    const targetBolsa = lane.dataset.bolsa;
+    if (!draggedTicketId || draggedCurrentBolsa === targetBolsa) return;
+
+    const card = document.querySelector(`.queue-ticket-card[data-ticket-id="${draggedTicketId}"]`);
+    if (card) card.classList.remove('dragging');
+
+    fetch(`/tickets/${draggedTicketId}/asignar`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest'
+      },
+      body: JSON.stringify({ bolsa_asignada: targetBolsa })
+    })
+    .then(res => res.json())
+    .then(data => {
+      if (data.ok) {
+        // Ensure target list exists (handles empty lane case)
+        let targetList = lane.querySelector('.queue-ticket-list');
+        if (!targetList) {
+          targetList = document.createElement('div');
+          targetList.className = 'queue-ticket-list';
+          lane.appendChild(targetList);
+          const emptyMsg = lane.querySelector('.empty-state-sm');
+          if (emptyMsg) emptyMsg.remove();
+        }
+        
+        if (card) {
+          targetList.appendChild(card);
+          card.dataset.currentBolsa = targetBolsa;
+        }
+        updateLaneCounts();
+      } else {
+        alert('Error al mover ticket: ' + (data.error || 'Desconocido'));
+      }
+    })
+    .catch(err => {
+      console.error(err);
+      alert('Error de red al mover ticket');
+    });
+
+    draggedTicketId = null;
+    draggedCurrentBolsa = null;
+  }
+
+  // Remove drag-over class when leaving lane
+  document.querySelectorAll('.queue-lane').forEach(lane => {
+    lane.addEventListener('dragleave', (e) => {
+      if (!lane.contains(e.relatedTarget)) {
+        lane.classList.remove('drag-over');
+      }
+    });
+  });
+
+  function updateLaneCounts() {
+    document.querySelectorAll('.queue-lane').forEach(lane => {
+      const count = lane.querySelectorAll('.queue-ticket-card').length;
+      const countBadge = lane.querySelector('.queue-count');
+      const smallText = lane.querySelector('.queue-lane-head small');
+      if (countBadge) countBadge.textContent = count;
+      if (smallText) smallText.textContent = `${count} abiertos visibles`;
+    });
+  }
+</script>
 
 <%- include('../partials/footer') %>

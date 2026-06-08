@@ -11,7 +11,20 @@ const {
   normalizeRole
 } = require('../middleware/auth');
 const { uploadTicketImages } = require('../config/uploads');
-const { enviarReporteTicket, enviarConfirmacionCreadorTicket, notificarTicket } = require('../config/mailer');
+const { enviarReporteTicket, enviarConfirmacionCreadorTicket, notificarTicket, enviarMail } = require('../config/mailer');
+
+function escapeHtml(value) {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function nl2br(value) {
+  return escapeHtml(value).replace(/\n/g, '<br>');
+}
 const { buildDevAssistant } = require('../services/dev-radar');
 
 function withImageUpload(fieldName, fallbackPath) {
@@ -105,7 +118,7 @@ async function findDefaultInternalUser(client) {
 }
 
 router.get('/', requireLogin, async (req, res) => {
-  const { estado, prioridad, canal, buscar, page = 1 } = req.query;
+  const { estado, prioridad, canal, buscar, page = 1, periodo = '30' } = req.query;
   const limit = 15;
   const offset = (page - 1) * limit;
   const user = req.session.user;
@@ -116,6 +129,13 @@ router.get('/', requireLogin, async (req, res) => {
   const statsParams = [];
   let pIdx = 1;
   let statsIdx = 1;
+
+  // Filtro de período
+  const periodoDias = parseInt(periodo, 10);
+  if (periodoDias > 0 && periodoDias <= 365) {
+    whereClause += ` AND t.fecha_creacion >= NOW() - INTERVAL '${periodoDias} days'`;
+    statsWhereClause += ` AND t.fecha_creacion >= NOW() - INTERVAL '${periodoDias} days'`;
+  }
 
   if (isClient(user)) {
     if (user.cliente_id) {
@@ -179,7 +199,7 @@ router.get('/', requireLogin, async (req, res) => {
   }
 
   try {
-    const [ticketsRes, countRes, statsRes, notifRes] = await Promise.all([
+    const [ticketsRes, countRes, statsRes, notifRes, clientesRes] = await Promise.all([
       pool.query(`
         SELECT
           t.*,
@@ -219,7 +239,8 @@ router.get('/', requireLogin, async (req, res) => {
         WHERE usuario_id = $1 AND leida = false
         ORDER BY created_at DESC
         LIMIT 10
-      `, [user.id])
+      `, [user.id]),
+      pool.query('SELECT id, nombre FROM clientes ORDER BY nombre')
     ]);
 
     const totalPages = Math.ceil(parseInt(countRes.rows[0].count, 10) / limit);
@@ -234,7 +255,8 @@ router.get('/', requireLogin, async (req, res) => {
         total: totalPages,
         count: parseInt(countRes.rows[0].count, 10)
       },
-      filters: { estado, prioridad, canal, buscar },
+      filters: { estado, prioridad, canal, buscar, periodo },
+      clientes: clientesRes.rows,
       moment
     });
   } catch (error) {
@@ -397,6 +419,83 @@ router.get('/mail-intake', requireLogin, (_req, res) => {
   res.render('tickets/mail-intake', {
     title: 'Intake Mail'
   });
+});
+
+router.post('/whatsapp/tomar', requireLogin, async (req, res) => {
+  const user = req.session.user;
+  const client = await pool.connect();
+
+  try {
+    if (isClient(user)) {
+      req.flash('error', 'Los usuarios cliente no pueden tomar tickets internos');
+      return res.redirect('/tickets');
+    }
+
+    await client.query('BEGIN');
+
+    const ticketRes = await client.query(`
+      SELECT t.id, t.nro_ticket
+      FROM tickets t
+      LEFT JOIN usuarios ur ON ur.id = t.receptor_id
+      LEFT JOIN usuarios ue ON ue.id = t.ejecutor_id
+      WHERE COALESCE(t.canal_origen, 'web') = 'whatsapp'
+        AND t.estado = 'Pendiente'
+        AND COALESCE(t.bolsa_asignada, 'soporte') = 'soporte'
+        AND NOT (
+          COALESCE(ur.rol, '') IN ('tecnico_soporte', 'soporte', 'tecnico_desarrollo', 'desarrollo')
+          OR COALESCE(ue.rol, '') IN ('tecnico_soporte', 'soporte', 'tecnico_desarrollo', 'desarrollo')
+        )
+      ORDER BY
+        CASE WHEN t.receptor_id IS NULL OR t.ejecutor_id IS NULL THEN 0 ELSE 1 END,
+        t.fecha_creacion ASC
+      LIMIT 1
+      FOR UPDATE OF t SKIP LOCKED
+    `);
+
+    const ticket = ticketRes.rows[0];
+    if (!ticket) {
+      await client.query('ROLLBACK');
+      req.flash('success', 'No hay WhatsApp pendientes para tomar');
+      return res.redirect('/tickets?canal=whatsapp&estado=Pendiente');
+    }
+
+    await client.query(`
+      UPDATE tickets
+      SET receptor_id = $1,
+          ejecutor_id = $1,
+          fecha_asignacion = NOW(),
+          updated_at = NOW()
+      WHERE id = $2
+    `, [user.id, ticket.id]);
+
+    await client.query(`
+      INSERT INTO comentarios (ticket_id, usuario_id, comentario, tipo, visible_cliente)
+      VALUES ($1, $2, $3, 'asignacion', false)
+    `, [
+      ticket.id,
+      user.id,
+      `WhatsApp tomado desde cola simple por ${user.nombre}`
+    ]);
+
+    await client.query('COMMIT');
+
+    await notificarTicket({
+      ticketId: ticket.id,
+      tipo: 'asignacion',
+      mensaje: `Ticket #${ticket.nro_ticket} tomado desde cola WhatsApp`,
+      usuarioOrigenId: user.id
+    });
+
+    req.flash('success', `Tomaste el WhatsApp #${ticket.nro_ticket}`);
+    res.redirect(`/tickets/${ticket.id}`);
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error(error);
+    req.flash('error', `No se pudo tomar WhatsApp: ${error.message}`);
+    res.redirect('/tickets?canal=whatsapp&estado=Pendiente');
+  } finally {
+    client.release();
+  }
 });
 
 router.get('/:id', requireLogin, async (req, res) => {
@@ -609,45 +708,74 @@ router.post('/:id/comentar', requireLogin, withImageUpload('imagenes', (req) => 
 });
 
 router.post('/:id/asignar', requireLogin, async (req, res) => {
-  const { ejecutor_id, receptor_id, bolsa_asignada } = req.body;
+  const { ejecutor_id, receptor_id, bolsa_asignada, return_to } = req.body;
   const user = req.session.user;
+  const isAjax = req.xhr || req.headers['x-requested-with'] === 'XMLHttpRequest';
+  const redirectTarget = typeof return_to === 'string' && (return_to.startsWith('/admin') || return_to.startsWith('/tickets'))
+    ? return_to
+    : `/tickets/${req.params.id}`;
 
   try {
     if (isClient(user)) {
+      if (isAjax) return res.status(403).json({ ok: false, error: 'Acceso restringido' });
       req.flash('error', 'Los usuarios cliente no pueden reasignar tickets');
       return res.redirect(`/tickets/${req.params.id}`);
     }
 
     if (!canManageAssignments(user)) {
+      if (isAjax) return res.status(403).json({ ok: false, error: 'Acceso restringido' });
       req.flash('error', 'Solo los administradores de soporte o desarrollo pueden reasignar tickets');
       return res.redirect(`/tickets/${req.params.id}`);
     }
 
-    await pool.query(`
-      UPDATE tickets
-      SET ejecutor_id = $1, receptor_id = $2, bolsa_asignada = $3, updated_at = NOW()
-      WHERE id = $4
-    `, [ejecutor_id, receptor_id, bolsa_asignada || 'soporte', req.params.id]);
+    const updates = [];
+    const values = [];
+    let idx = 1;
 
-    const tkRes = await pool.query('SELECT nro_ticket FROM tickets WHERE id = $1', [req.params.id]);
-    await pool.query(`
-      INSERT INTO comentarios (ticket_id, usuario_id, comentario, tipo, visible_cliente)
-      VALUES ($1, $2, $3, 'asignacion', false)
-    `, [req.params.id, user.id, `Ticket reasignado. Bolsa: ${bolsa_asignada || 'soporte'}`]);
+    if (bolsa_asignada) {
+      updates.push(`bolsa_asignada = $${idx++}`);
+      values.push(bolsa_asignada);
+    }
+    if (receptor_id) {
+      updates.push(`receptor_id = $${idx++}`);
+      values.push(receptor_id);
+    }
+    if (ejecutor_id) {
+      updates.push(`ejecutor_id = $${idx++}`);
+      values.push(ejecutor_id);
+    }
 
-    await notificarTicket({
-      ticketId: parseInt(req.params.id, 10),
-      tipo: 'asignacion',
-      mensaje: `Ticket #${tkRes.rows[0]?.nro_ticket} reasignado`,
-      usuarioOrigenId: user.id
-    });
+    if (updates.length > 0) {
+      updates.push(`updated_at = NOW()`);
+      values.push(req.params.id);
+      await pool.query(`UPDATE tickets SET ${updates.join(', ')} WHERE id = $${idx}`, values);
+
+      const tkRes = await pool.query('SELECT nro_ticket FROM tickets WHERE id = $1', [req.params.id]);
+      const bolsaMsg = bolsa_asignada ? ` Bolsa: ${bolsa_asignada}` : '';
+      await pool.query(`
+        INSERT INTO comentarios (ticket_id, usuario_id, comentario, tipo, visible_cliente)
+        VALUES ($1, $2, $3, 'asignacion', false)
+      `, [req.params.id, user.id, `Ticket reasignado.${bolsaMsg}`]);
+
+      await notificarTicket({
+        ticketId: parseInt(req.params.id, 10),
+        tipo: 'asignacion',
+        mensaje: `Ticket #${tkRes.rows[0]?.nro_ticket} reasignado`,
+        usuarioOrigenId: user.id
+      });
+    }
+
+    if (isAjax) {
+      return res.json({ ok: true, message: 'Ticket actualizado' });
+    }
 
     req.flash('success', 'Ticket reasignado');
-    res.redirect(`/tickets/${req.params.id}`);
+    res.redirect(redirectTarget);
   } catch (error) {
     console.error(error);
+    if (isAjax) return res.status(500).json({ ok: false, error: error.message });
     req.flash('error', 'Error al reasignar');
-    res.redirect(`/tickets/${req.params.id}`);
+    res.redirect(redirectTarget);
   }
 });
 
@@ -688,6 +816,340 @@ router.post('/:id/enviar-reporte', requireLogin, async (req, res) => {
     console.error(error);
     req.flash('error', `No se pudo enviar el reporte: ${error.message}`);
     res.redirect(`/tickets/${req.params.id}`);
+  }
+});
+
+router.post('/enviar-reporte-cliente', requireLogin, async (req, res) => {
+  const { cliente_id, periodo = '30', mensaje_personalizado } = req.body;
+  const user = req.session.user;
+
+  try {
+    if (isClient(user)) {
+      req.flash('error', 'Los usuarios cliente no pueden enviar reportes');
+      return res.redirect('/tickets');
+    }
+
+    if (!canManageAssignments(user)) {
+      req.flash('error', 'Solo administradores pueden enviar reportes a clientes');
+      return res.redirect('/tickets');
+    }
+
+    if (!cliente_id) {
+      throw new Error('Debes seleccionar un cliente');
+    }
+
+    const periodoDias = parseInt(periodo, 10);
+    if (periodoDias < 1 || periodoDias > 365) {
+      throw new Error('El período debe estar entre 1 y 365 días');
+    }
+
+    // Obtener datos del cliente
+    const clienteRes = await pool.query(`
+      SELECT id, nombre, email, contacto_nombre
+      FROM clientes
+      WHERE id = $1
+    `, [cliente_id]);
+
+    const cliente = clienteRes.rows[0];
+    if (!cliente) {
+      throw new Error('Cliente no encontrado');
+    }
+
+    if (!cliente.email) {
+      throw new Error('El cliente no tiene email configurado');
+    }
+
+    // Obtener resumen de tickets del cliente en el período
+    const statsRes = await pool.query(`
+      SELECT
+        COUNT(*) as total,
+        COUNT(*) FILTER (WHERE estado = 'Pendiente') as pendientes,
+        COUNT(*) FILTER (WHERE estado = 'En Proceso') as en_proceso,
+        COUNT(*) FILTER (WHERE estado = 'Resuelto') as resueltos,
+        COUNT(*) FILTER (WHERE estado = 'Cerrado') as cerrados,
+        COUNT(*) FILTER (WHERE prioridad = 'Alta' OR prioridad = 'Urgente') as alta_prioridad,
+        COUNT(*) FILTER (WHERE canal_origen = 'web') as canal_web,
+        COUNT(*) FILTER (WHERE canal_origen = 'mail') as canal_mail,
+        COUNT(*) FILTER (WHERE canal_origen = 'whatsapp') as canal_whatsapp,
+        COUNT(*) FILTER (WHERE canal_origen = 'vfp') as canal_vfp
+      FROM tickets
+      WHERE cliente_id = $1
+        AND fecha_creacion >= NOW() - INTERVAL '${periodoDias} days'
+    `, [cliente_id]);
+
+    const stats = statsRes.rows[0];
+
+    // Obtener tickets recientes para el resumen
+    const ticketsRes = await pool.query(`
+      SELECT nro_ticket, asunto, estado, prioridad, fecha_creacion, canal_origen
+      FROM tickets
+      WHERE cliente_id = $1
+        AND fecha_creacion >= NOW() - INTERVAL '${periodoDias} days'
+      ORDER BY fecha_creacion DESC
+      LIMIT 10
+    `, [cliente_id]);
+
+    const periodoTexto = periodoDias === 7 ? 'última semana' :
+                         periodoDias === 30 ? 'último mes' :
+                         periodoDias === 90 ? 'últimos 3 meses' :
+                         `${periodoDias} días`;
+
+    // Construir HTML del reporte
+    const html = `
+      <div style="font-family:Arial,sans-serif;max-width:720px;margin:0 auto;background:#f8fafc">
+        <div style="background:#0f172a;color:white;padding:24px;border-radius:12px 12px 0 0">
+          <h2 style="margin:0">Reporte de Tickets - ${escapeHtml(cliente.nombre)}</h2>
+          <p style="margin:8px 0 0;color:#cbd5e1">Resumen del ${periodoTexto}</p>
+        </div>
+        <div style="background:#ffffff;padding:24px;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 12px 12px">
+          <p style="margin-top:0;color:#0f172a">Hola ${escapeHtml(cliente.contacto_nombre || cliente.nombre)},</p>
+          ${mensaje_personalizado ? `<div style="color:#334155;line-height:1.7;margin-bottom:20px">${nl2br(mensaje_personalizado)}</div>` : ''}
+          
+          <div style="background:#f1f5f9;padding:16px;border-radius:10px;margin:20px 0">
+            <h3 style="margin:0 0 12px;color:#0f172a">Resumen General</h3>
+            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">
+              <div style="text-align:center;padding:12px;background:white;border-radius:8px">
+                <div style="font-size:24px;font-weight:800;color:#3b82f6">${stats.total}</div>
+                <div style="font-size:12px;color:#64748b">Total Tickets</div>
+              </div>
+              <div style="text-align:center;padding:12px;background:white;border-radius:8px">
+                <div style="font-size:24px;font-weight:800;color:#f59e0b">${stats.pendientes}</div>
+                <div style="font-size:12px;color:#64748b">Pendientes</div>
+              </div>
+              <div style="text-align:center;padding:12px;background:white;border-radius:8px">
+                <div style="font-size:24px;font-weight:800;color:#10b981">${stats.resueltos + stats.cerrados}</div>
+                <div style="font-size:12px;color:#64748b">Resueltos/Cerrados</div>
+              </div>
+            </div>
+          </div>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:20px 0">
+            <div style="background:#f1f5f9;padding:16px;border-radius:10px">
+              <h4 style="margin:0 0 10px;color:#0f172a">Por Estado</h4>
+              <div style="font-size:13px;color:#334155;line-height:2">
+                <div>⏳ Pendientes: <strong>${stats.pendientes}</strong></div>
+                <div>🔄 En Proceso: <strong>${stats.en_proceso}</strong></div>
+                <div>✅ Resueltos: <strong>${stats.resueltos}</strong></div>
+                <div>🔒 Cerrados: <strong>${stats.cerrados}</strong></div>
+              </div>
+            </div>
+            <div style="background:#f1f5f9;padding:16px;border-radius:10px">
+              <h4 style="margin:0 0 10px;color:#0f172a">Por Canal</h4>
+              <div style="font-size:13px;color:#334155;line-height:2">
+                <div>🌐 Web: <strong>${stats.canal_web}</strong></div>
+                <div>📧 Mail: <strong>${stats.canal_mail}</strong></div>
+                <div>💬 WhatsApp: <strong>${stats.canal_whatsapp}</strong></div>
+                <div> VFP: <strong>${stats.canal_vfp}</strong></div>
+              </div>
+            </div>
+          </div>
+
+          ${stats.alta_prioridad > 0 ? `
+          <div style="background:#fef2f2;border-left:4px solid #ef4444;padding:12px;border-radius:8px;margin:16px 0">
+            <strong style="color:#dc2626">⚠️ Atención:</strong>
+            <span style="color:#991b1b"> Hay ${stats.alta_prioridad} ticket(s) de prioridad Alta/Urgente en este período.</span>
+          </div>
+          ` : ''}
+
+          ${ticketsRes.rows.length > 0 ? `
+          <div style="margin:20px 0">
+            <h4 style="margin:0 0 10px;color:#0f172a">Tickets Recientes</h4>
+            <table style="width:100%;border-collapse:collapse;font-size:13px">
+              <thead>
+                <tr style="background:#f1f5f9">
+                  <th style="padding:8px;text-align:left;border-bottom:2px solid #e2e8f0">#</th>
+                  <th style="padding:8px;text-align:left;border-bottom:2px solid #e2e8f0">Asunto</th>
+                  <th style="padding:8px;text-align:left;border-bottom:2px solid #e2e8f0">Estado</th>
+                  <th style="padding:8px;text-align:left;border-bottom:2px solid #e2e8f0">Fecha</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${ticketsRes.rows.map(t => `
+                  <tr>
+                    <td style="padding:8px;border-bottom:1px solid #e2e8f0">#${t.nro_ticket}</td>
+                    <td style="padding:8px;border-bottom:1px solid #e2e8f0">${escapeHtml(t.asunto || 'Sin asunto')}</td>
+                    <td style="padding:8px;border-bottom:1px solid #e2e8f0">${t.estado}</td>
+                    <td style="padding:8px;border-bottom:1px solid #e2e8f0">${moment(t.fecha_creacion).format('DD/MM/YYYY')}</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+          ` : ''}
+
+          <p style="margin:24px 0 0;color:#64748b;font-size:12px">Este reporte fue generado automáticamente desde TicketSystem.</p>
+        </div>
+      </div>
+    `;
+
+    await enviarMail({
+      to: cliente.email,
+      subject: `Reporte de Tickets - ${cliente.nombre} (${periodoTexto})`,
+      html
+    });
+
+    req.flash('success', `Reporte enviado a ${cliente.email}`);
+    res.redirect('/tickets');
+  } catch (error) {
+    console.error(error);
+    req.flash('error', `No se pudo enviar el reporte: ${error.message}`);
+    res.redirect('/tickets');
+  }
+});
+
+router.post('/reporte-preview', requireLogin, async (req, res) => {
+  const { cliente_id, periodo = '30', mensaje_personalizado } = req.body;
+  const user = req.session.user;
+
+  try {
+    if (isClient(user)) {
+      return res.status(403).json({ ok: false, error: 'Acceso restringido' });
+    }
+
+    if (!cliente_id) {
+      return res.status(400).json({ ok: false, error: 'Debes seleccionar un cliente' });
+    }
+
+    const periodoDias = parseInt(periodo, 10);
+    if (periodoDias < 1 || periodoDias > 365) {
+      return res.status(400).json({ ok: false, error: 'Período inválido' });
+    }
+
+    const clienteRes = await pool.query(`
+      SELECT id, nombre, email, contacto_nombre
+      FROM clientes
+      WHERE id = $1
+    `, [cliente_id]);
+
+    const cliente = clienteRes.rows[0];
+    if (!cliente) {
+      return res.status(404).json({ ok: false, error: 'Cliente no encontrado' });
+    }
+
+    const statsRes = await pool.query(`
+      SELECT
+        COUNT(*) as total,
+        COUNT(*) FILTER (WHERE estado = 'Pendiente') as pendientes,
+        COUNT(*) FILTER (WHERE estado = 'En Proceso') as en_proceso,
+        COUNT(*) FILTER (WHERE estado = 'Resuelto') as resueltos,
+        COUNT(*) FILTER (WHERE estado = 'Cerrado') as cerrados,
+        COUNT(*) FILTER (WHERE prioridad = 'Alta' OR prioridad = 'Urgente') as alta_prioridad,
+        COUNT(*) FILTER (WHERE canal_origen = 'web') as canal_web,
+        COUNT(*) FILTER (WHERE canal_origen = 'mail') as canal_mail,
+        COUNT(*) FILTER (WHERE canal_origen = 'whatsapp') as canal_whatsapp,
+        COUNT(*) FILTER (WHERE canal_origen = 'vfp') as canal_vfp
+      FROM tickets
+      WHERE cliente_id = $1
+        AND fecha_creacion >= NOW() - INTERVAL '${periodoDias} days'
+    `, [cliente_id]);
+
+    const stats = statsRes.rows[0];
+
+    const ticketsRes = await pool.query(`
+      SELECT nro_ticket, asunto, estado, prioridad, fecha_creacion, canal_origen
+      FROM tickets
+      WHERE cliente_id = $1
+        AND fecha_creacion >= NOW() - INTERVAL '${periodoDias} days'
+      ORDER BY fecha_creacion DESC
+      LIMIT 10
+    `, [cliente_id]);
+
+    const periodoTexto = periodoDias === 7 ? 'última semana' :
+                         periodoDias === 30 ? 'último mes' :
+                         periodoDias === 90 ? 'últimos 3 meses' :
+                         `${periodoDias} días`;
+
+    const html = `
+      <div style="font-family:Arial,sans-serif;max-width:720px;margin:0 auto;background:#f8fafc">
+        <div style="background:#0f172a;color:white;padding:24px;border-radius:12px 12px 0 0">
+          <h2 style="margin:0">Reporte de Tickets - ${escapeHtml(cliente.nombre)}</h2>
+          <p style="margin:8px 0 0;color:#cbd5e1">Resumen del ${periodoTexto}</p>
+        </div>
+        <div style="background:#ffffff;padding:24px;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 12px 12px">
+          <p style="margin-top:0;color:#0f172a">Hola ${escapeHtml(cliente.contacto_nombre || cliente.nombre)},</p>
+          ${mensaje_personalizado ? `<div style="color:#334155;line-height:1.7;margin-bottom:20px">${nl2br(mensaje_personalizado)}</div>` : ''}
+          
+          <div style="background:#f1f5f9;padding:16px;border-radius:10px;margin:20px 0">
+            <h3 style="margin:0 0 12px;color:#0f172a">Resumen General</h3>
+            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">
+              <div style="text-align:center;padding:12px;background:white;border-radius:8px">
+                <div style="font-size:24px;font-weight:800;color:#3b82f6">${stats.total}</div>
+                <div style="font-size:12px;color:#64748b">Total Tickets</div>
+              </div>
+              <div style="text-align:center;padding:12px;background:white;border-radius:8px">
+                <div style="font-size:24px;font-weight:800;color:#f59e0b">${stats.pendientes}</div>
+                <div style="font-size:12px;color:#64748b">Pendientes</div>
+              </div>
+              <div style="text-align:center;padding:12px;background:white;border-radius:8px">
+                <div style="font-size:24px;font-weight:800;color:#10b981">${stats.resueltos + stats.cerrados}</div>
+                <div style="font-size:12px;color:#64748b">Resueltos/Cerrados</div>
+              </div>
+            </div>
+          </div>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:20px 0">
+            <div style="background:#f1f5f9;padding:16px;border-radius:10px">
+              <h4 style="margin:0 0 10px;color:#0f172a">Por Estado</h4>
+              <div style="font-size:13px;color:#334155;line-height:2">
+                <div>⏳ Pendientes: <strong>${stats.pendientes}</strong></div>
+                <div>🔄 En Proceso: <strong>${stats.en_proceso}</strong></div>
+                <div>✅ Resueltos: <strong>${stats.resueltos}</strong></div>
+                <div>🔒 Cerrados: <strong>${stats.cerrados}</strong></div>
+              </div>
+            </div>
+            <div style="background:#f1f5f9;padding:16px;border-radius:10px">
+              <h4 style="margin:0 0 10px;color:#0f172a">Por Canal</h4>
+              <div style="font-size:13px;color:#334155;line-height:2">
+                <div>🌐 Web: <strong>${stats.canal_web}</strong></div>
+                <div>📧 Mail: <strong>${stats.canal_mail}</strong></div>
+                <div>💬 WhatsApp: <strong>${stats.canal_whatsapp}</strong></div>
+                <div>🖥️ VFP: <strong>${stats.canal_vfp}</strong></div>
+              </div>
+            </div>
+          </div>
+
+          ${stats.alta_prioridad > 0 ? `
+          <div style="background:#fef2f2;border-left:4px solid #ef4444;padding:12px;border-radius:8px;margin:16px 0">
+            <strong style="color:#dc2626">⚠️ Atención:</strong>
+            <span style="color:#991b1b"> Hay ${stats.alta_prioridad} ticket(s) de prioridad Alta/Urgente en este período.</span>
+          </div>
+          ` : ''}
+
+          ${ticketsRes.rows.length > 0 ? `
+          <div style="margin:20px 0">
+            <h4 style="margin:0 0 10px;color:#0f172a">Tickets Recientes</h4>
+            <table style="width:100%;border-collapse:collapse;font-size:13px">
+              <thead>
+                <tr style="background:#f1f5f9">
+                  <th style="padding:8px;text-align:left;border-bottom:2px solid #e2e8f0">#</th>
+                  <th style="padding:8px;text-align:left;border-bottom:2px solid #e2e8f0">Asunto</th>
+                  <th style="padding:8px;text-align:left;border-bottom:2px solid #e2e8f0">Estado</th>
+                  <th style="padding:8px;text-align:left;border-bottom:2px solid #e2e8f0">Fecha</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${ticketsRes.rows.map(t => `
+                  <tr>
+                    <td style="padding:8px;border-bottom:1px solid #e2e8f0">#${t.nro_ticket}</td>
+                    <td style="padding:8px;border-bottom:1px solid #e2e8f0">${escapeHtml(t.asunto || 'Sin asunto')}</td>
+                    <td style="padding:8px;border-bottom:1px solid #e2e8f0">${t.estado}</td>
+                    <td style="padding:8px;border-bottom:1px solid #e2e8f0">${moment(t.fecha_creacion).format('DD/MM/YYYY')}</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+          ` : ''}
+
+          <p style="margin:24px 0 0;color:#64748b;font-size:12px">Este reporte fue generado automáticamente desde TicketSystem.</p>
+        </div>
+      </div>
+    `;
+
+    res.json({ ok: true, html, cliente: cliente.nombre, periodo: periodoTexto });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ ok: false, error: error.message });
   }
 });
 

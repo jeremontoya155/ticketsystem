@@ -118,20 +118,27 @@ router.post('/notificaciones/leer-todas', requireLogin, async (req, res) => {
   res.json({ ok: true });
 });
 
-router.get('/stats', requireLogin, async (_req, res) => {
+router.get('/stats', requireLogin, async (req, res) => {
+  const periodo = req.query.periodo || '30';
+  const periodoDias = parseInt(periodo, 10);
+  const wherePeriodo = periodoDias > 0 && periodoDias <= 365 
+    ? `WHERE fecha_creacion >= NOW() - INTERVAL '${periodoDias} days'` 
+    : '';
+
   const [estadoRes, prioridadRes, tendenciaRes, canalRes] = await Promise.all([
-    pool.query('SELECT estado, COUNT(*) AS total FROM tickets GROUP BY estado'),
-    pool.query('SELECT prioridad, COUNT(*) AS total FROM tickets GROUP BY prioridad'),
+    pool.query(`SELECT estado, COUNT(*) AS total FROM tickets ${wherePeriodo} GROUP BY estado`),
+    pool.query(`SELECT prioridad, COUNT(*) AS total FROM tickets ${wherePeriodo} GROUP BY prioridad`),
     pool.query(`
       SELECT DATE_TRUNC('week', fecha_creacion)::date AS semana, COUNT(*) AS total
       FROM tickets
-      WHERE fecha_creacion >= NOW() - INTERVAL '12 weeks'
+      ${wherePeriodo}
       GROUP BY semana
       ORDER BY semana
     `),
     pool.query(`
       SELECT COALESCE(canal_origen, 'web') AS canal, COUNT(*) AS total
       FROM tickets
+      ${wherePeriodo}
       GROUP BY COALESCE(canal_origen, 'web')
       ORDER BY total DESC
     `)

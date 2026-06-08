@@ -287,18 +287,84 @@ async function createTicketFromExternal(input) {
 }
 
 function buildPossibleTicketSummary(message, matchedClient) {
+  const combined = `${message.asunto || ''} ${message.cuerpo || ''} ${message.text || ''}`.toLowerCase();
+  
+  // Señales de que es un ticket válido
+  const signals = [];
+  let score = 0;
+
+  // 1. Cliente detectado (+30 pts)
+  if (matchedClient) {
+    score += 30;
+    signals.push('cliente_conocido');
+  }
+
+  // 2. Palabras clave de problema/soporte (+20 pts cada una, max 40)
+  const problemKeywords = [
+    'urgente', 'caido', 'no funciona', 'bloqueado', 'error', 'falla', 'problema',
+    'no puedo', 'no se puede', 'imposible', 'no abre', 'no cierra', 'no carga',
+    'necesito', 'solicito', 'reclamo', 'consulta', 'ayuda', 'soporte',
+    'recepcion', 'armado', 'desarrollo', 'bug', 'crash', 'lento', 'traba'
+  ];
+  const foundKeywords = problemKeywords.filter(kw => combined.includes(kw));
+  const keywordScore = Math.min(foundKeywords.length * 15, 40);
+  score += keywordScore;
+  if (foundKeywords.length > 0) {
+    signals.push(`keywords(${foundKeywords.slice(0, 3).join(',')})`);
+  }
+
+  // 3. Estructura de ticket (+20 pts)
+  const ticketPatterns = [
+    /ticket\s*#?\d+/i,
+    /nro\s*de\s*ticket/i,
+    /referencia[:\s]/i,
+    /comprobante[:\s]/i,
+    /recepcion[:\s]/i,
+    /pedido[:\s]/i,
+    /orden[:\s]/i,
+    /cliente[:\s]/i,
+    /empresa[:\s]/i
+  ];
+  const foundPatterns = ticketPatterns.filter(p => p.test(combined));
+  if (foundPatterns.length > 0) {
+    score += 20;
+    signals.push('estructura_ticket');
+  }
+
+  // 4. Tiene cuerpo sustancial (+10 pts)
+  const bodyLength = (message.cuerpo || message.text || '').length;
+  if (bodyLength > 50) {
+    score += 10;
+    signals.push('cuerpo_sustancial');
+  }
+
+  // 5. Prioridad sugerida
+  const isUrgent = /urgente|caido|no funciona|bloqueado|error|crash|crítico/i.test(combined);
+  const prioridadSugerida = isUrgent ? 'Alta' : 'Media';
+
+  // Determinar nivel de confianza
+  let confianza = 'baja';
+  if (score >= 60) confianza = 'alta';
+  else if (score >= 30) confianza = 'media';
+
   return {
     canal_origen: message.canal || 'mail',
     asunto: message.asunto || 'Sin asunto',
     reclamo_sugerido: summarizeText(message.cuerpo || message.text || message.asunto, 900),
-    prioridad_sugerida: /urgente|caido|no funciona|bloqueado|error/i.test(`${message.asunto || ''} ${message.cuerpo || ''}`) ? 'Alta' : 'Media',
+    prioridad_sugerida: prioridadSugerida,
     cliente_detectado: matchedClient ? {
       id: matchedClient.id,
       nombre: matchedClient.nombre,
       email: matchedClient.email,
       telefono: matchedClient.telefono
     } : null,
-    requiere_clasificacion: !matchedClient
+    requiere_clasificacion: !matchedClient,
+    // Nuevos campos para UI
+    confianza,
+    score: Math.min(score, 100),
+    signals,
+    keywords_found: foundKeywords.slice(0, 5),
+    es_posible_ticket: score >= 20
   };
 }
 

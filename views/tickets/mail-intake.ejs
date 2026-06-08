@@ -48,10 +48,35 @@
     const ticket = mail.possibleTicket || {};
     const client = ticket.cliente_detectado;
     const date = mail.date ? new Date(mail.date).toLocaleString('es-AR') : 'Sin fecha';
+    const confianza = ticket.confianza || 'baja';
+    const score = ticket.score || 0;
+    const esPosibleTicket = ticket.es_posible_ticket;
+    
+    // Clases según confianza
+    const cardClass = esPosibleTicket ? `mail-card mail-card-ticket mail-card-${confianza}` : 'mail-card';
+    
+    // Badge de confianza
+    const confianzaBadge = esPosibleTicket ? `
+      <span class="confianza-badge confianza-${confianza}" title="Puntaje: ${score}/100">
+        <i class="fas fa-${confianza === 'alta' ? 'check-circle' : confianza === 'media' ? 'exclamation-circle' : 'info-circle'}"></i>
+        ${confianza === 'alta' ? 'Ticket probable' : confianza === 'media' ? 'Posible ticket' : 'Revisar'}
+      </span>
+    ` : '';
+    
+    // Señales detectadas
+    const signalsHtml = (ticket.signals || []).length > 0 ? `
+      <div class="ticket-signals">
+        ${ticket.signals.map(s => `<span class="signal-tag">${escapeHtml(s)}</span>`).join('')}
+      </div>
+    ` : '';
+
     return `
-      <article class="mail-card">
+      <article class="${cardClass}">
         <div class="mail-card-head">
-          <span class="badge channel-badge canal-mail">Mail</span>
+          <div class="head-left">
+            <span class="badge channel-badge canal-mail">Mail</span>
+            ${confianzaBadge}
+          </div>
           <small>${escapeHtml(date)}</small>
         </div>
         <h3>${escapeHtml(mail.subject)}</h3>
@@ -60,14 +85,20 @@
           <span>${escapeHtml(mail.from?.name || 'Sin nombre')} &lt;${escapeHtml(mail.from?.address || '')}&gt;</span>
         </div>
         <p class="mail-preview">${escapeHtml(mail.text)}</p>
-        <div class="possible-ticket">
-          <strong>Ticket sugerido</strong>
-          <span>Prioridad: ${escapeHtml(ticket.prioridad_sugerida || 'Media')}</span>
-          <span>${client ? `Cliente detectado: ${escapeHtml(client.nombre)}` : 'Sin cliente detectado'}</span>
-          ${mail.hasAttachments ? `<span>${mail.attachmentsCount} adjunto(s) detectado(s)</span>` : ''}
+        <div class="possible-ticket ${esPosibleTicket ? 'possible-ticket-highlight' : ''}">
+          <div class="possible-ticket-header">
+            <strong><i class="fas fa-ticket-alt"></i> Análisis de ticket</strong>
+            <span class="score-pill">Score: ${score}/100</span>
+          </div>
+          <div class="possible-ticket-details">
+            <span><i class="fas fa-flag"></i> Prioridad: <strong>${escapeHtml(ticket.prioridad_sugerida || 'Media')}</strong></span>
+            <span><i class="fas fa-building"></i> ${client ? `Cliente: ${escapeHtml(client.nombre)}` : 'Sin cliente detectado'}</span>
+            ${mail.hasAttachments ? `<span><i class="fas fa-paperclip"></i> ${mail.attachmentsCount} adjunto(s)</span>` : ''}
+          </div>
+          ${signalsHtml}
         </div>
-        <button type="button" class="btn-primary btn-full" data-import-mail="${escapeHtml(mail.messageId)}">
-          <i class="fas fa-ticket-alt"></i> Crear ticket desde este mail
+        <button type="button" class="btn-primary btn-full ${esPosibleTicket ? 'btn-import-ticket' : ''}" data-import-mail="${escapeHtml(mail.messageId)}">
+          <i class="fas fa-ticket-alt"></i> ${esPosibleTicket ? 'Importar como ticket' : 'Crear ticket desde este mail'}
         </button>
       </article>
     `;

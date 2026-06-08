@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
+const moment = require('moment');
 const { pool } = require('../config/db');
 const { requireLogin, requireAdmin, normalizeRole } = require('../middleware/auth');
 
@@ -130,7 +131,7 @@ function buildUserDefaults(usuario = {}) {
 }
 
 async function renderDashboard(req, res) {
-  const [usersRes, statsRes, clientsRes] = await Promise.all([
+  const [usersRes, statsRes, clientsRes, ticketsBolsaRes] = await Promise.all([
     pool.query(`
       SELECT
         u.*,
@@ -140,11 +141,53 @@ async function renderDashboard(req, res) {
         cm.notif_cambio_estado,
         cm.notif_nuevo_comentario,
         cm.notif_asignacion,
+        ua.ticket_id AS ultimo_ticket_id,
+        ua.nro_ticket AS ultimo_ticket_nro,
+        ua.estado AS ultimo_ticket_estado,
+        ua.canal AS ultimo_ticket_canal,
+        ua.actividad_tipo AS ultima_actividad_tipo,
+        ua.actividad_at AS ultima_actividad_at,
+        ua.resumen AS ultima_actividad_resumen,
         (SELECT COUNT(*) FROM tickets WHERE ejecutor_id = u.id) AS total_tickets,
         (SELECT COUNT(*) FROM tickets WHERE ejecutor_id = u.id AND estado = 'Pendiente') AS pendientes
       FROM usuarios u
       LEFT JOIN clientes c ON c.id = u.cliente_id
       LEFT JOIN config_mail cm ON cm.usuario_id = u.id
+      LEFT JOIN LATERAL (
+        SELECT *
+        FROM (
+          SELECT
+            t.id AS ticket_id,
+            t.nro_ticket,
+            t.estado,
+            COALESCE(t.canal_origen, 'web') AS canal,
+            CASE
+              WHEN t.ejecutor_id = u.id THEN 'Ejecutor'
+              WHEN t.receptor_id = u.id THEN 'Receptor'
+              ELSE 'Ticket'
+            END AS actividad_tipo,
+            COALESCE(t.updated_at, t.fecha_creacion) AS actividad_at,
+            LEFT(COALESCE(t.asunto, t.reclamo, ''), 90) AS resumen
+          FROM tickets t
+          WHERE t.receptor_id = u.id OR t.ejecutor_id = u.id
+
+          UNION ALL
+
+          SELECT
+            t.id AS ticket_id,
+            t.nro_ticket,
+            t.estado,
+            COALESCE(t.canal_origen, 'web') AS canal,
+            'Comentario' AS actividad_tipo,
+            cmnt.created_at AS actividad_at,
+            LEFT(cmnt.comentario, 90) AS resumen
+          FROM comentarios cmnt
+          INNER JOIN tickets t ON t.id = cmnt.ticket_id
+          WHERE cmnt.usuario_id = u.id
+        ) actividad
+        ORDER BY actividad_at DESC
+        LIMIT 1
+      ) ua ON true
       ORDER BY u.created_at DESC
     `),
     pool.query(`
@@ -172,6 +215,33 @@ async function renderDashboard(req, res) {
       FROM clientes c
       ORDER BY c.created_at DESC
       LIMIT 5
+    `),
+    pool.query(`
+      SELECT
+        t.id,
+        t.nro_ticket,
+        t.asunto,
+        t.reclamo,
+        t.estado,
+        t.prioridad,
+        COALESCE(t.canal_origen, 'web') AS canal_origen,
+        COALESCE(t.bolsa_asignada, 'soporte') AS bolsa_asignada,
+        t.receptor_id,
+        t.ejecutor_id,
+        t.fecha_creacion,
+        c.nombre AS cliente_nombre,
+        ur.nombre AS receptor_nombre,
+        ue.nombre AS ejecutor_nombre
+      FROM tickets t
+      LEFT JOIN clientes c ON c.id = t.cliente_id
+      LEFT JOIN usuarios ur ON ur.id = t.receptor_id
+      LEFT JOIN usuarios ue ON ue.id = t.ejecutor_id
+      WHERE t.estado IN ('Pendiente', 'En Proceso')
+      ORDER BY
+        CASE COALESCE(t.bolsa_asignada, 'soporte') WHEN 'soporte' THEN 1 ELSE 2 END,
+        CASE t.prioridad WHEN 'Urgente' THEN 1 WHEN 'Alta' THEN 2 WHEN 'Media' THEN 3 ELSE 4 END,
+        t.fecha_creacion ASC
+      LIMIT 18
     `)
   ]);
 
@@ -179,7 +249,9 @@ async function renderDashboard(req, res) {
     title: 'Administracion',
     usuarios: usersRes.rows,
     stats: statsRes.rows[0],
-    clientesRecientes: clientsRes.rows
+    clientesRecientes: clientsRes.rows,
+    ticketsBolsa: ticketsBolsaRes.rows,
+    moment
   });
 }
 
